@@ -13,10 +13,11 @@ export default function AdminReferralSettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Referral settings</h1>
+        <h1 className="text-2xl font-bold text-white">Referral Commission Settings</h1>
         <p className="text-sm text-white/50">
-          Configure the reward paid at each of the 12 referral levels. Rewards only trigger when a
-          referred user&apos;s package purchase is approved.
+          Configure the commission paid at each of the 12 referral levels. A commission is credited
+          automatically to the referrer&apos;s Staff Earning wallet — no admin action required — the
+          moment a referred user&apos;s package purchase is approved and activated.
         </p>
       </div>
 

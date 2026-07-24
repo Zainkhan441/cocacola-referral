@@ -32,3 +32,20 @@ export function validateDateRange(startDate: Date | null, endDate: Date | null):
   }
   return null;
 }
+
+export function validateVideoUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "Video URL is required.";
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.replace(/^www\./, "");
+    const isYoutube = host === "youtube.com" || host === "youtu.be" || host === "m.youtube.com";
+    const isTiktok = host === "tiktok.com" || host === "m.tiktok.com";
+    if (!isYoutube && !isTiktok) {
+      return "Video URL must be a YouTube or TikTok link.";
+    }
+  } catch {
+    return "Enter a valid URL.";
+  }
+  return null;
+}

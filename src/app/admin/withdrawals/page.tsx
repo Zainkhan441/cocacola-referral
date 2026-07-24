@@ -12,6 +12,7 @@ import {
 import { WithdrawalReviewRow } from "@/features/admin/components/withdrawal-review-row";
 import { StatusFilterTabs } from "@/features/admin/components/status-filter-tabs";
 import { LoadMoreButton } from "@/features/admin/components/load-more-button";
+import { WithdrawalRulesForm } from "@/features/admin/components/withdrawal-rules-form";
 
 const STATUS_OPTIONS: ReadonlyArray<{ label: string; value: WithdrawalStatusFilter }> = [
   { label: "All", value: "all" },
@@ -28,6 +29,8 @@ export default function AdminWithdrawalsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-white">Withdrawals</h1>
+
+      <WithdrawalRulesForm />
 
       <StatusFilterTabs options={STATUS_OPTIONS} value={status} onChange={setStatus} />
 

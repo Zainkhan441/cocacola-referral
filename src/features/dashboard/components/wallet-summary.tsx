@@ -10,18 +10,20 @@ const CARDS: Array<{
   label: string;
   key: keyof Pick<
     UserDoc,
-    "walletBalance" | "totalEarnings" | "pendingEarnings" | "todayEarnings"
+    "walletBalance" | "currentBalance" | "cocaColaEarning" | "staffEarning" | "totalEarnings" | "todayEarnings"
   >;
 }> = [
-  { label: "Available balance", key: "walletBalance" },
+  { label: "Deposit Wallet", key: "walletBalance" },
+  { label: "Current Balance", key: "currentBalance" },
+  { label: "Coca-Cola Earning", key: "cocaColaEarning" },
+  { label: "Staff Earning", key: "staffEarning" },
   { label: "Total earnings", key: "totalEarnings" },
-  { label: "Pending earnings", key: "pendingEarnings" },
   { label: "Today’s earnings", key: "todayEarnings" },
 ];
 
 export function WalletSummary({ profile }: WalletSummaryProps) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
       {CARDS.map((card) => (
         <div
           key={card.key}
@@ -41,7 +43,7 @@ export function WalletSummary({ profile }: WalletSummaryProps) {
 
 export function WalletSummarySkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
       {CARDS.map((card) => (
         <div
           key={card.key}

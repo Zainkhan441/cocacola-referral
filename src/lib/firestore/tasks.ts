@@ -41,6 +41,9 @@ export type TaskDoc = {
   endDate: Timestamp | null;
   frequency: TaskFrequency;
   proofRequired: boolean;
+  // The YouTube/TikTok video a user opens to complete this task. Required —
+  // every task is a "watch this video" task.
+  videoUrl: string;
   status: TaskStatus;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -73,6 +76,7 @@ export type TaskInput = {
   endDate: Timestamp | null;
   frequency: TaskFrequency;
   proofRequired: boolean;
+  videoUrl: string;
   status: TaskStatus;
 };
 

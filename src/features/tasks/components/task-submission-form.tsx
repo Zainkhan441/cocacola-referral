@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -91,6 +92,16 @@ export function TaskSubmissionForm({ task, onDone, onCancel }: TaskSubmissionFor
       </div>
 
       <p className="whitespace-pre-wrap text-sm text-white/60">{task.instructions}</p>
+
+      <a
+        href={task.videoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/10 px-4 py-2.5 text-sm font-medium text-brand-light transition-colors hover:bg-brand/20"
+      >
+        <PlayCircle className="h-4 w-4" aria-hidden="true" />
+        Watch video to complete this task
+      </a>
 
       {formError && <Alert variant="error">{formError}</Alert>}
 

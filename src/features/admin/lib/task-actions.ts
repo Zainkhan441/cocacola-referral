@@ -61,12 +61,13 @@ export async function setTaskStatusAction(
   });
 }
 
-// Approves a pending task submission: credits the wallet (both users/{uid}
-// and the mirrored wallets/{uid}), writes one completed ledger transaction,
-// and marks the submission approved — all in one atomic transaction, same
-// shape as approveDeposit. Re-reads the submission's own pending state at
-// write time, so two concurrent approvals of the same request can't both
-// succeed.
+// Approves a pending task submission: credits Current Balance (both
+// users/{uid} and the mirrored wallets/{uid}) — the only wallet a task
+// completion is ever allowed to touch — writes one completed ledger
+// transaction, and marks the submission approved — all in one atomic
+// transaction, same shape as approveDeposit. Re-reads the submission's own
+// pending state at write time, so two concurrent approvals of the same
+// request can't both succeed.
 export async function approveTaskSubmission(submissionId: string, reviewer: Reviewer): Promise<void> {
   const db = requireDb();
   const txnRef = newTransactionRef(db);
@@ -90,16 +91,16 @@ export async function approveTaskSubmission(submissionId: string, reviewer: Revi
     }
     const user = userSnap.data();
 
-    const newBalance = user.walletBalance + submission.rewardAmount;
+    const newCurrentBalance = user.currentBalance + submission.rewardAmount;
     const newTotalEarnings = user.totalEarnings + submission.rewardAmount;
 
     transaction.update(userDocRef(db, submission.uid), {
-      walletBalance: newBalance,
+      currentBalance: newCurrentBalance,
       totalEarnings: newTotalEarnings,
       updatedAt: serverTimestamp(),
     });
     transaction.update(walletDocRef(db, submission.uid), {
-      balance: newBalance,
+      currentBalance: newCurrentBalance,
       totalEarnings: newTotalEarnings,
       updatedAt: serverTimestamp(),
     });

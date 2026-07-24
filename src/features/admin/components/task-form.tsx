@@ -16,6 +16,7 @@ import {
   validateRewardAmount,
   validateMinPackagePrice,
   validateDateRange,
+  validateVideoUrl,
 } from "@/features/admin/lib/task-validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 import type { TaskDoc, TaskInput, TaskFrequency, TaskStatus } from "@/lib/firestore/tasks";
@@ -31,7 +32,7 @@ function toDateInputValue(timestamp: Timestamp | null | undefined): string {
   return timestamp.toDate().toISOString().slice(0, 10);
 }
 
-type FieldErrors = Partial<Record<"title" | "description" | "instructions" | "rewardAmount" | "minPackagePrice" | "dateRange", string>>;
+type FieldErrors = Partial<Record<"title" | "description" | "instructions" | "rewardAmount" | "minPackagePrice" | "dateRange" | "videoUrl", string>>;
 
 export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
   const { user } = useAuth();
@@ -55,6 +56,7 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
   const [minPackagePrice, setMinPackagePrice] = useState(
     initialTask?.minPackagePrice != null ? String(initialTask.minPackagePrice) : "",
   );
+  const [videoUrl, setVideoUrl] = useState(initialTask?.videoUrl ?? "");
   const [startDate, setStartDate] = useState(toDateInputValue(initialTask?.startDate));
   const [endDate, setEndDate] = useState(toDateInputValue(initialTask?.endDate));
   const [frequency, setFrequency] = useState<TaskFrequency>(initialTask?.frequency ?? "one_time");
@@ -82,6 +84,7 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
       rewardAmount: validateRewardAmount(parsedReward) ?? undefined,
       minPackagePrice: validateMinPackagePrice(parsedMinPrice) ?? undefined,
       dateRange: validateDateRange(startDateObj, endDateObj) ?? undefined,
+      videoUrl: validateVideoUrl(videoUrl) ?? undefined,
     };
     setFieldErrors(errors);
     if (Object.values(errors).some(Boolean)) return;
@@ -97,6 +100,7 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
       endDate: endDateObj ? Timestamp.fromDate(endDateObj) : null,
       frequency,
       proofRequired,
+      videoUrl: videoUrl.trim(),
       status,
     };
 
@@ -167,6 +171,14 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
           value={rewardAmount}
           onChange={(event) => setRewardAmount(event.target.value)}
           error={fieldErrors.rewardAmount}
+        />
+
+        <FormField
+          label="Video URL (YouTube/TikTok)"
+          type="url"
+          value={videoUrl}
+          onChange={(event) => setVideoUrl(event.target.value)}
+          error={fieldErrors.videoUrl}
         />
 
         <div className="flex flex-col gap-1.5">

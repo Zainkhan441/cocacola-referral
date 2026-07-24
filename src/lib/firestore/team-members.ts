@@ -143,6 +143,26 @@ export async function getTeamActiveCount(db: Firestore, ancestorUid: string): Pr
   return snapshot.data().total;
 }
 
+// The "Level" that gates Coca-Cola Earning withdrawals (see
+// settings/withdrawalRules): the count of the caller's own DIRECT (level 1)
+// referrals who currently have an active, unexpired package. Requires a
+// composite index (ancestorUid asc, level asc, packageExpiresAt asc).
+export async function getDirectActiveReferralCount(
+  db: Firestore,
+  ancestorUid: string,
+): Promise<number> {
+  const snapshot = await getAggregateFromServer(
+    query(
+      teamMembersCollection(db),
+      where("ancestorUid", "==", ancestorUid),
+      where("level", "==", 1),
+      where("packageExpiresAt", ">", Timestamp.now()),
+    ),
+    { total: count() },
+  );
+  return snapshot.data().total;
+}
+
 // Requires the same (ancestorUid asc, level asc, joinedAt desc) composite
 // index as teamMembersPageQuery's per-level branch (a count-only query is
 // satisfied by any index whose filtered fields form a prefix).

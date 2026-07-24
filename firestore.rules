@@ -74,6 +74,19 @@ service cloud.firestore {
       return tier.requiredPackageId == null || user.package == tier.requiredPackageId;
     }
 
+    // The package-wise daily task COUNT limit (distinct from a single daily
+    // task's own per-task cooldown, canClaimDaily-style): caps how many task
+    // completions of ANY task this user may submit within a rolling 24h
+    // window, per their own active package's dailyTaskLimit. Absence of a
+    // counter document means the user hasn't submitted anything yet this
+    // window, so it's always allowed.
+    function taskDailyCounterAllowsSubmission(uid) {
+      let user = userData(uid);
+      return !exists(/databases/$(database)/documents/taskDailyCounters/$(uid))
+        || request.time > get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.windowStartAt + duration.value(24, "h")
+        || get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.count < get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit;
+    }
+
     // Absence of settings/global means daily claims are ON by default — the
     // feature works out of the box without requiring an admin to explicitly
     // enable it first.
@@ -84,6 +97,18 @@ service cloud.firestore {
 
     function dailyEarningFor(pkg) {
       return get(/databases/$(database)/documents/packages/$(pkg)).data.dailyEarning;
+    }
+
+    // Admin-editable minimum a Current Balance withdrawal request must meet
+    // (settings/withdrawalRules) — absence of the document falls back to the
+    // platform default of Rs 500. The Coca-Cola Earning path's own gate
+    // (direct-active-referral Level) isn't computable in rules at all (no
+    // aggregate queries here), so it has no equivalent helper — see the
+    // withdrawals/{id} create rule's comment.
+    function currentBalanceMinWithdraw() {
+      return !exists(/databases/$(database)/documents/settings/withdrawalRules)
+        ? 500
+        : get(/databases/$(database)/documents/settings/withdrawalRules).data.currentBalanceMinWithdraw;
     }
 
     // `user` is an already-resolved users/{uid} data map (either `resource.data`
@@ -131,14 +156,15 @@ service cloud.firestore {
 
     // The self-service daily-claim path: the only fields allowed to change
     // are exactly the ones a claim touches, each formula-validated against
-    // the caller's own current package.
+    // the caller's own current package. Credits Coca-Cola Earning only —
+    // this is the automatic daily package earning, never task/referral money.
     function ownerCanClaimDaily() {
       return canClaimDaily(resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(["walletBalance", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
+             .hasOnly(["cocaColaEarning", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
         && request.resource.data.lastDailyClaimAt == request.time
-        && request.resource.data.walletBalance
-             == resource.data.walletBalance + dailyEarningFor(resource.data.package)
+        && request.resource.data.cocaColaEarning
+             == resource.data.cocaColaEarning + dailyEarningFor(resource.data.package)
         && request.resource.data.totalEarnings
              == resource.data.totalEarnings + dailyEarningFor(resource.data.package)
         && request.resource.data.todayEarnings == dailyEarningFor(resource.data.package);
@@ -165,8 +191,8 @@ service cloud.firestore {
     function ownerCanClaimDailyWallet(uid) {
       let user = userData(uid);
       return canClaimDaily(user)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["balance", "totalEarnings", "updatedAt"])
-        && request.resource.data.balance == resource.data.balance + dailyEarningFor(user.package)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["cocaColaEarning", "totalEarnings", "updatedAt"])
+        && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + dailyEarningFor(user.package)
         && request.resource.data.totalEarnings == resource.data.totalEarnings + dailyEarningFor(user.package);
     }
 
@@ -186,11 +212,15 @@ service cloud.firestore {
     // wallet credits are already trusted elsewhere in this file.
     function adminCanUpdateUser() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        "walletBalance", "totalEarnings", "pendingEarnings", "todayEarnings",
+        "walletBalance", "currentBalance", "cocaColaEarning", "staffEarning",
+        "totalEarnings", "pendingEarnings", "todayEarnings",
         "accountStatus", "package", "packagePurchasedAt", "packageActivatedAt",
         "packageExpiresAt", "pendingPackagePurchaseId", "updatedAt"
       ])
         && request.resource.data.walletBalance is number && request.resource.data.walletBalance >= 0
+        && request.resource.data.currentBalance is number && request.resource.data.currentBalance >= 0
+        && request.resource.data.cocaColaEarning is number && request.resource.data.cocaColaEarning >= 0
+        && request.resource.data.staffEarning is number && request.resource.data.staffEarning >= 0
         && request.resource.data.totalEarnings is number && request.resource.data.totalEarnings >= 0
         && request.resource.data.pendingEarnings is number && request.resource.data.pendingEarnings >= 0
         && request.resource.data.todayEarnings is number && request.resource.data.todayEarnings >= 0
@@ -207,6 +237,9 @@ service cloud.firestore {
       allow create: if isOwner(uid)
         && request.resource.data.uid == uid
         && request.resource.data.walletBalance == 0
+        && request.resource.data.currentBalance == 0
+        && request.resource.data.cocaColaEarning == 0
+        && request.resource.data.staffEarning == 0
         && request.resource.data.totalEarnings == 0
         && request.resource.data.pendingEarnings == 0
         && request.resource.data.todayEarnings == 0
@@ -234,6 +267,9 @@ service cloud.firestore {
       allow read: if isOwner(uid) || isAdmin();
       allow create: if isOwner(uid)
         && request.resource.data.balance == 0
+        && request.resource.data.currentBalance == 0
+        && request.resource.data.cocaColaEarning == 0
+        && request.resource.data.staffEarning == 0
         && request.resource.data.totalEarnings == 0
         && request.resource.data.pendingEarnings == 0;
       // Kept in sync with users/{uid}'s denormalized copy by the same admin
@@ -242,8 +278,14 @@ service cloud.firestore {
       // allowed to go negative.
       allow update: if (isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys()
-               .hasOnly(["balance", "totalEarnings", "pendingEarnings", "updatedAt"])
+               .hasOnly([
+                 "balance", "currentBalance", "cocaColaEarning", "staffEarning",
+                 "totalEarnings", "pendingEarnings", "updatedAt"
+               ])
           && request.resource.data.balance is number && request.resource.data.balance >= 0
+          && request.resource.data.currentBalance is number && request.resource.data.currentBalance >= 0
+          && request.resource.data.cocaColaEarning is number && request.resource.data.cocaColaEarning >= 0
+          && request.resource.data.staffEarning is number && request.resource.data.staffEarning >= 0
           && request.resource.data.totalEarnings is number && request.resource.data.totalEarnings >= 0
           && request.resource.data.pendingEarnings is number && request.resource.data.pendingEarnings >= 0)
         || (isOwner(uid) && ownerCanClaimDailyWallet(uid));
@@ -339,8 +381,15 @@ service cloud.firestore {
     }
 
     // Same shape as deposits, plus: amount can never exceed the requester's
-    // current wallet balance nor their active, unexpired package's
-    // per-request limit.
+    // relevant wallet balance nor their active, unexpired package's
+    // per-request limit. Which wallet/limit applies depends on sourceWallet
+    // — Staff Earning has no withdrawal path at all (not a valid value
+    // here). Note: the Coca-Cola Earning path's required-Level gate (direct
+    // active referral count) can't be checked here — Firestore rules cannot
+    // run the aggregate count query it needs — so it's only advisory
+    // client-side UX; the authoritative check happens in approveWithdrawal
+    // via a live getDirectActiveReferralCount() re-fetch before any money
+    // moves, exactly like approveBonusClaim's team-aggregate re-check.
     match /withdrawals/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
@@ -351,13 +400,19 @@ service cloud.firestore {
         && request.resource.data.reviewedBy == null
         && request.resource.data.method == "easypaisa"
         && request.resource.data.amount is number
-        && request.resource.data.amount >= 500
         && request.resource.data.accountName is string
         && request.resource.data.accountName.size() > 0
         && request.resource.data.accountNumber is string
         && request.resource.data.accountNumber.size() > 0
-        && request.resource.data.amount <= userData(request.auth.uid).walletBalance
-        && withinPackageWithdrawalLimit(request.auth.uid, request.resource.data.amount);
+        && withinPackageWithdrawalLimit(request.auth.uid, request.resource.data.amount)
+        && (
+             (request.resource.data.sourceWallet == "current_balance"
+               && request.resource.data.amount >= currentBalanceMinWithdraw()
+               && request.resource.data.amount <= userData(request.auth.uid).currentBalance)
+             || (request.resource.data.sourceWallet == "coca_cola_earning"
+               && request.resource.data.amount >= 500
+               && request.resource.data.amount <= userData(request.auth.uid).cocaColaEarning)
+           );
       allow update: if isAdmin() && adminCanReviewRequest();
       allow delete: if false;
     }
@@ -495,6 +550,7 @@ service cloud.firestore {
         && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp)
         && request.resource.data.frequency in ["one_time", "daily"]
         && request.resource.data.proofRequired is bool
+        && request.resource.data.videoUrl is string && request.resource.data.videoUrl.size() > 0
         && request.resource.data.status in ["active", "disabled", "archived"];
       allow update: if isAdmin()
         && request.resource.data.id == resource.data.id
@@ -510,6 +566,7 @@ service cloud.firestore {
         && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp)
         && request.resource.data.frequency in ["one_time", "daily"]
         && request.resource.data.proofRequired is bool
+        && request.resource.data.videoUrl is string && request.resource.data.videoUrl.size() > 0
         && request.resource.data.status in ["active", "disabled", "archived"];
       allow delete: if false;
     }
@@ -537,6 +594,7 @@ service cloud.firestore {
         && request.resource.data.rewardAmount == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.rewardAmount
         && request.resource.data.frequency == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.frequency
         && taskEligible(request.auth.uid, request.resource.data.taskId)
+        && taskDailyCounterAllowsSubmission(request.auth.uid)
         && request.resource.data.textResponse is string && request.resource.data.textResponse.size() > 0
         && (get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.proofRequired == false
             || (request.resource.data.proofScreenshotUrl is string && request.resource.data.proofScreenshotUrl.size() > 0))
@@ -573,6 +631,35 @@ service cloud.firestore {
         && request.time > resource.data.lastSubmittedAt + duration.value(24, "h")
         && request.resource.data.lastSubmittedAt == request.time
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastSubmittedAt"]);
+      allow delete: if false;
+    }
+
+    // The rolling-24h package-wise daily task COUNT limit marker — one
+    // document per user (doc id == uid, unlike taskCooldowns which is per
+    // (uid, taskId)), since this caps total completions across every task,
+    // not one specific task. Written by the same client transaction as the
+    // taskSubmission it accompanies; the create/update branches mirror
+    // ownerCanClaimDaily's "first ever" vs "already have one" split, with the
+    // update branch additionally re-enforcing the count/limit check so a
+    // client can't just skip creating a taskSubmission and increment this
+    // alone, or increment past the limit.
+    match /taskDailyCounters/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.count == 1
+        && request.resource.data.windowStartAt == request.time;
+      allow update: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && (
+             (request.time > resource.data.windowStartAt + duration.value(24, "h")
+               && request.resource.data.count == 1
+               && request.resource.data.windowStartAt == request.time)
+             || (request.time <= resource.data.windowStartAt + duration.value(24, "h")
+               && resource.data.count < get(/databases/$(database)/documents/packages/$(userData(uid).package)).data.dailyTaskLimit
+               && request.resource.data.count == resource.data.count + 1
+               && request.resource.data.windowStartAt == resource.data.windowStartAt)
+           );
       allow delete: if false;
     }
 
@@ -725,6 +812,7 @@ service cloud.firestore {
         && request.resource.data.withdrawalLimitPerRequest is number && request.resource.data.withdrawalLimitPerRequest >= 0
         && request.resource.data.dailyWithdrawalLimit is number && request.resource.data.dailyWithdrawalLimit >= 0
         && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.dailyTaskLimit is number && request.resource.data.dailyTaskLimit >= 0
         && request.resource.data.features is list
         && request.resource.data.isActive is bool;
       allow update: if isAdmin()
@@ -736,6 +824,7 @@ service cloud.firestore {
         && request.resource.data.withdrawalLimitPerRequest is number && request.resource.data.withdrawalLimitPerRequest >= 0
         && request.resource.data.dailyWithdrawalLimit is number && request.resource.data.dailyWithdrawalLimit >= 0
         && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.dailyTaskLimit is number && request.resource.data.dailyTaskLimit >= 0
         && request.resource.data.features is list
         && request.resource.data.isActive is bool;
       allow delete: if false;
@@ -772,6 +861,9 @@ service cloud.firestore {
           && (request.resource.data.contactEmail == null || request.resource.data.contactEmail is string)
           && (request.resource.data.contactPhone == null || request.resource.data.contactPhone is string)
           && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string))
+        || (settingId == "withdrawalRules"
+          && request.resource.data.currentBalanceMinWithdraw is number && request.resource.data.currentBalanceMinWithdraw >= 0
+          && request.resource.data.cocaColaRequiredLevel is number && request.resource.data.cocaColaRequiredLevel >= 0)
       );
     }
 

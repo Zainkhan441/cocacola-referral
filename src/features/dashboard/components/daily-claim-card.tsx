@@ -1,15 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Gift } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
-import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useDailyClaimStatus } from "@/features/earnings/hooks/use-daily-claim-status";
-import { claimDailyEarning } from "@/features/earnings/lib/actions";
+import { runAutomaticDailyEarning } from "@/features/earnings/lib/actions";
 import type { UserDoc } from "@/lib/firestore/users";
 
 type DailyClaimCardProps = {
@@ -29,29 +27,38 @@ export function DailyClaimCard({ profile }: DailyClaimCardProps) {
   const { canClaim, remainingMs, dailyEarning, blockedReason, loading } =
     useDailyClaimStatus(profile);
 
-  const [claiming, setClaiming] = useState(false);
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const [claimedAmount, setClaimedAmount] = useState<number | null>(null);
+  const [creditedAmount, setCreditedAmount] = useState<number | null>(null);
+  const [creditError, setCreditError] = useState<string | null>(null);
+  const attemptedForRef = useRef<string | null>(null);
 
-  async function handleClaim() {
-    if (!user || claiming || !canClaim) return;
-    setClaiming(true);
-    setClaimError(null);
-    setClaimedAmount(null);
-    try {
-      const amount = await claimDailyEarning(user.uid);
-      setClaimedAmount(amount);
-    } catch (error) {
-      setClaimError(error instanceof Error ? error.message : "Couldn’t claim your daily earning.");
-    } finally {
-      setClaiming(false);
-    }
-  }
+  // Fully automatic, no button: the moment this user's 24h window opens,
+  // silently credit their Coca-Cola Earning wallet. Keyed off
+  // lastDailyClaimAt so it only ever attempts once per window even if this
+  // component re-renders many times before Firestore's own listener catches
+  // up with the new value.
+  useEffect(() => {
+    if (!user || !canClaim) return;
+    const windowKey = profile.lastDailyClaimAt
+      ? profile.lastDailyClaimAt.toMillis().toString()
+      : "never";
+    if (attemptedForRef.current === windowKey) return;
+    attemptedForRef.current = windowKey;
+
+    runAutomaticDailyEarning(user.uid)
+      .then((amount) => {
+        if (amount != null) setCreditedAmount(amount);
+      })
+      .catch((error) => {
+        setCreditError(
+          error instanceof Error ? error.message : "Couldn’t credit your daily earning.",
+        );
+      });
+  }, [user, canClaim, profile.lastDailyClaimAt]);
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Daily earning</h2>
+        <h2 className="text-sm font-semibold text-white">Coca-Cola daily earning</h2>
         <Gift className="h-4 w-4 text-brand-light" aria-hidden="true" />
       </div>
 
@@ -61,25 +68,22 @@ export function DailyClaimCard({ profile }: DailyClaimCardProps) {
         <Alert variant="info">{blockedReason}</Alert>
       ) : (
         <>
-          {claimError && <Alert variant="error">{claimError}</Alert>}
-          {claimedAmount != null && (
+          {creditError && <Alert variant="error">{creditError}</Alert>}
+          {creditedAmount != null && (
             <Alert variant="success">
-              Claimed {formatCurrency(claimedAmount)}! Come back tomorrow.
+              {formatCurrency(creditedAmount)} was automatically credited to your Coca-Cola Earning
+              wallet!
             </Alert>
           )}
 
           {canClaim ? (
             <>
-              <p className="text-sm text-white/60">
-                You can claim {formatCurrency(dailyEarning ?? 0)} right now.
-              </p>
-              <Button size="lg" disabled={claiming} onClick={handleClaim}>
-                {claiming ? <Spinner /> : `Claim ${formatCurrency(dailyEarning ?? 0)}`}
-              </Button>
+              <p className="text-sm text-white/60">Crediting your daily earning…</p>
+              <p className="text-sm text-white/40">{formatCurrency(dailyEarning ?? 0)} per day</p>
             </>
           ) : (
             <>
-              <p className="text-sm text-white/60">Next claim available in</p>
+              <p className="text-sm text-white/60">Next automatic credit in</p>
               <p className="text-3xl font-bold tabular-nums text-white">
                 {formatCountdown(remainingMs)}
               </p>

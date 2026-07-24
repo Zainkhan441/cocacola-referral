@@ -17,55 +17,49 @@ function requireDb() {
 
 const CLAIM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-// Self-service: the caller's own client runs this transaction. Every value
-// written is re-derived from the caller's own current package inside the
-// transaction (never trusted from a parameter), and firestore.rules
-// independently re-validates the exact same formula and cooldown — so even
-// a hand-crafted request bypassing this function entirely can't claim
-// early or for a different amount. Returns the claimed amount for the
-// success message.
-export async function claimDailyEarning(uid: string): Promise<number> {
+// Automatic, silent daily package earning — no user action triggers this; a
+// dashboard-mounted effect calls it opportunistically for the signed-in
+// user, and it's a harmless no-op whenever nothing is actually due (unlike
+// the old manual "Claim" flow, ineligibility is never surfaced as an error).
+// Every value written is re-derived from the caller's own current package
+// inside the transaction (never trusted from a parameter), and
+// firestore.rules independently re-validates the exact same formula and
+// cooldown — so even a hand-crafted request bypassing this function
+// entirely can't credit early or for a different amount. Credits Coca-Cola
+// Earning only (never Current Balance/Staff Earning/Deposit). Returns the
+// credited amount, or null if nothing was due this call.
+export async function runAutomaticDailyEarning(uid: string): Promise<number | null> {
   const firestore = requireDb();
   const dailyRewardRef = newDailyRewardRef(firestore);
   const txnRef = newTransactionRef(firestore);
 
-  let claimedAmount = 0;
+  let creditedAmount: number | null = null;
 
   await runTransaction(firestore, async (transaction) => {
     const userSnap = await transaction.get(userDocRef(firestore, uid));
-    if (!userSnap.exists()) {
-      throw new Error("Your profile could not be found.");
-    }
+    if (!userSnap.exists()) return;
     const user = userSnap.data();
 
-    if (!user.package) {
-      throw new Error("You need an active package to claim daily earnings.");
-    }
+    if (!user.package) return;
 
     const packageSnap = await transaction.get(packageDocRef(firestore, user.package));
-    if (!packageSnap.exists() || !packageSnap.data().isActive) {
-      throw new Error("Your package's daily claims are currently paused.");
-    }
+    if (!packageSnap.exists() || !packageSnap.data().isActive) return;
     const pkg = packageSnap.data();
 
-    if (!user.packageExpiresAt || Date.now() >= user.packageExpiresAt.toMillis()) {
-      throw new Error("Your package has expired. Please renew it to keep claiming.");
-    }
+    if (!user.packageExpiresAt || Date.now() >= user.packageExpiresAt.toMillis()) return;
 
     if (user.lastDailyClaimAt) {
       const nextClaimAtMs = user.lastDailyClaimAt.toMillis() + CLAIM_COOLDOWN_MS;
-      if (Date.now() < nextClaimAtMs) {
-        throw new Error("You’ve already claimed today. Please check back later.");
-      }
+      if (Date.now() < nextClaimAtMs) return;
     }
 
     const dailyEarning = pkg.dailyEarning;
-    const newWalletBalance = user.walletBalance + dailyEarning;
+    const newCocaColaEarning = user.cocaColaEarning + dailyEarning;
     const newTotalEarnings = user.totalEarnings + dailyEarning;
     const now = serverTimestamp();
 
     transaction.update(userDocRef(firestore, uid), {
-      walletBalance: newWalletBalance,
+      cocaColaEarning: newCocaColaEarning,
       totalEarnings: newTotalEarnings,
       todayEarnings: dailyEarning,
       lastDailyClaimAt: now,
@@ -73,7 +67,7 @@ export async function claimDailyEarning(uid: string): Promise<number> {
     });
 
     transaction.update(walletDocRef(firestore, uid), {
-      balance: newWalletBalance,
+      cocaColaEarning: newCocaColaEarning,
       totalEarnings: newTotalEarnings,
       updatedAt: now,
     });
@@ -92,12 +86,12 @@ export async function claimDailyEarning(uid: string): Promise<number> {
       type: "daily_reward",
       amount: dailyEarning,
       status: "completed",
-      description: `Daily earning from ${pkg.name}`,
+      description: `Daily Coca-Cola earning from ${pkg.name}`,
       createdAt: now,
     });
 
-    claimedAmount = dailyEarning;
+    creditedAmount = dailyEarning;
   });
 
-  return claimedAmount;
+  return creditedAmount;
 }

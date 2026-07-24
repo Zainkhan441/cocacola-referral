@@ -5,7 +5,7 @@ export const ADMIN_NAV_LINKS = [
   { label: "Withdrawals", href: "/admin/withdrawals" },
   { label: "Users", href: "/admin/users" },
   { label: "Earnings", href: "/admin/earnings" },
-  { label: "Referral Settings", href: "/admin/referral-settings" },
+  { label: "Referral Commission Settings", href: "/admin/referral-settings" },
   { label: "Referral Logs", href: "/admin/referral-logs" },
   { label: "Tasks", href: "/admin/tasks" },
   { label: "Task Submissions", href: "/admin/task-submissions" },

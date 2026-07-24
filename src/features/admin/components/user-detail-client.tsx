@@ -14,6 +14,7 @@ import { useAdminUserWalletHistory } from "@/features/admin/hooks/use-admin-user
 import { useAdminPackages } from "@/features/admin/hooks/use-admin-packages";
 import { setAccountStatusAction, setUserPackageAction } from "@/features/admin/lib/user-actions";
 import { HistoryCard, HistoryListRow } from "@/features/dashboard/components/history-card";
+import { WalletAdjustmentForm } from "@/features/admin/components/wallet-adjustment-form";
 
 const NEUTRAL_BADGE = "border-white/15 bg-white/5 text-white/70";
 
@@ -126,14 +127,22 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <div>
-            <p className="text-xs text-white/50">Wallet balance</p>
+            <p className="text-xs text-white/50">Deposit Wallet</p>
             <p className="text-lg font-bold text-white">{formatCurrency(profile.walletBalance)}</p>
           </div>
           <div>
-            <p className="text-xs text-white/50">Total earnings</p>
-            <p className="text-lg font-bold text-white">{formatCurrency(profile.totalEarnings)}</p>
+            <p className="text-xs text-white/50">Current Balance</p>
+            <p className="text-lg font-bold text-white">{formatCurrency(profile.currentBalance)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-white/50">Coca-Cola Earning</p>
+            <p className="text-lg font-bold text-white">{formatCurrency(profile.cocaColaEarning)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-white/50">Staff Earning</p>
+            <p className="text-lg font-bold text-white">{formatCurrency(profile.staffEarning)}</p>
           </div>
           <div>
             <p className="text-xs text-white/50">Total referrals</p>
@@ -166,6 +175,8 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
           )}
         </Button>
       </div>
+
+      <WalletAdjustmentForm uid={uid} userName={profile.fullName} reviewer={reviewer} onAdjusted={retry} />
 
       <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
         <h2 className="text-sm font-semibold text-white">Change package</h2>

@@ -33,12 +33,32 @@ export type UserDoc = {
   email: string;
   referralCode: string;
   referredBy: string | null;
-  // Denormalized copy of wallets/{uid}.balance for fast dashboard reads
-  // without a second fetch. Any future balance mutation must update both
-  // documents together (ideally in one transaction/Cloud Function).
+  // Deposit/Recharge Balance — the ONLY thing that ever credits this field
+  // is an approved plain top-up deposit (never task/daily/referral earnings
+  // — deposited money and earned money are never mixed). Denormalized copy
+  // of wallets/{uid}.balance for fast dashboard reads without a second
+  // fetch; any future mutation must update both documents together.
   walletBalance: number;
+  // Current Balance — credited ONLY by approved task completions.
+  // Independently withdrawable, gated by an admin-editable minimum amount
+  // (see settings/withdrawalRules).
+  currentBalance: number;
+  // Coca-Cola Earning — credited ONLY by the automatic daily package
+  // earning engine (never by a manual claim). Independently withdrawable,
+  // gated by the user's own direct-active-referral count reaching an
+  // admin-editable required level (default 10; see settings/withdrawalRules).
+  cocaColaEarning: number;
+  // Staff Earning — credited ONLY by the 12-level referral commission
+  // engine, automatically on a downline package approval. Not directly
+  // withdrawable; admin may manually adjust it.
+  staffEarning: number;
+  // Lifetime sum of every currentBalance/cocaColaEarning/staffEarning
+  // credit (never deposits) — a historical "total earned" figure, kept in
+  // sync by every earning-crediting write site.
   totalEarnings: number;
   pendingEarnings: number;
+  // Today's Coca-Cola (daily package) earning amount specifically — set by
+  // the daily earning engine only, unrelated to task/referral earnings.
   todayEarnings: number;
   // Denormalized counts of downstream referrals for the same reason as the
   // balance fields above — the security rules only let a user read their own
@@ -114,6 +134,9 @@ export function buildInitialUserData(input: CreateUserDocumentInput) {
     referralCode: input.referralCode,
     referredBy: input.referredBy,
     walletBalance: 0,
+    currentBalance: 0,
+    cocaColaEarning: 0,
+    staffEarning: 0,
     totalEarnings: 0,
     pendingEarnings: 0,
     todayEarnings: 0,

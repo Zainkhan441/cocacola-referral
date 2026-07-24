@@ -1,6 +1,12 @@
 export const DEPOSIT_MIN_AMOUNT = 500;
 export const DEPOSIT_MAX_AMOUNT = 100_000;
-export const WITHDRAWAL_MIN_AMOUNT = 500;
+// Fallbacks used only while settings/withdrawalRules hasn't been configured
+// yet by an admin — see lib/firestore/settings.ts getWithdrawalRules.
+export const DEFAULT_CURRENT_BALANCE_MIN_WITHDRAW = 500;
+export const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
+// Coca-Cola Earning withdrawals have a fixed minimum (only the required
+// Level is admin-editable, per product decision).
+export const COCA_COLA_MIN_WITHDRAW = 500;
 
 // Pakistani mobile-wallet number, e.g. Easypaisa (03XXXXXXXXX).
 const ACCOUNT_NUMBER_PATTERN = /^03\d{9}$/;
@@ -36,10 +42,11 @@ export function validateWithdrawalAmount(
   amount: number,
   availableBalance: number,
   maxPerRequest: number | null,
+  minAmount: number,
 ): string | null {
   if (!Number.isFinite(amount) || amount <= 0) return "Enter a valid amount.";
-  if (amount < WITHDRAWAL_MIN_AMOUNT) {
-    return `Minimum withdrawal is Rs ${WITHDRAWAL_MIN_AMOUNT.toLocaleString()}.`;
+  if (amount < minAmount) {
+    return `Minimum withdrawal is Rs ${minAmount.toLocaleString()}.`;
   }
   if (amount > availableBalance) {
     return "Amount exceeds your available balance.";

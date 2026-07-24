@@ -106,6 +106,15 @@
       ]
     },
     {
+      "collectionGroup": "teamMembers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ancestorUid", "order": "ASCENDING" },
+        { "fieldPath": "level", "order": "ASCENDING" },
+        { "fieldPath": "packageExpiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "taskSubmissions",
       "queryScope": "COLLECTION",
       "fields": [

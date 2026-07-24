@@ -1,22 +1,58 @@
-import { runTransaction, serverTimestamp } from "firebase/firestore";
+import { getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { withdrawalDocRef } from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
 import { newTransactionRef } from "@/lib/firestore/transactions";
+import { getDirectActiveReferralCount } from "@/lib/firestore/team-members";
+import { getWithdrawalRules } from "@/lib/firestore/settings";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 
-// Approves a pending withdrawal: deducts the wallet (both users/{uid} and
-// the mirrored wallets/{uid}) and writes one completed ledger transaction,
-// atomically. Re-checks the withdrawal is still pending AND that the
-// current balance still covers it (it may have changed since the request
-// was submitted) at write time — if either fails, the whole transaction is
-// rejected, so the wallet can never go negative or be double-debited.
+const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
+
+// Approves a pending withdrawal: deducts the requested source wallet — Current
+// Balance or Coca-Cola Earning, per withdrawal.sourceWallet — from both
+// users/{uid} and the mirrored wallets/{uid}, and writes one completed ledger
+// transaction, atomically. Re-checks the withdrawal is still pending AND that
+// the balance still covers it (it may have changed since the request was
+// submitted) at write time — if either fails, the whole transaction is
+// rejected, so a wallet can never go negative or be double-debited.
+//
+// The Coca-Cola Earning path additionally requires the requester's direct
+// active-referral count to meet the admin-editable required Level (default
+// 10) — Firestore rules can't run the aggregate count query this needs (see
+// firestore.rules withdrawals/{id} create rule), so this is re-verified here
+// with a LIVE getDirectActiveReferralCount() read, BEFORE the money-moving
+// transaction starts, exactly mirroring approveBonusClaim's live team-
+// aggregate re-check. If the requester no longer meets the Level, this
+// throws without crediting anything, so the admin can reject instead.
 export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer): Promise<void> {
   const db = requireDb();
-  const txnRef = newTransactionRef(db);
 
+  const withdrawalSnapPreCheck = await getDoc(withdrawalDocRef(db, withdrawalId));
+  if (!withdrawalSnapPreCheck.exists()) {
+    throw new Error("This withdrawal request no longer exists.");
+  }
+  const withdrawalPreCheck = withdrawalSnapPreCheck.data();
+  if (withdrawalPreCheck.status !== "pending") {
+    throw new Error("This withdrawal request has already been reviewed.");
+  }
+
+  if (withdrawalPreCheck.sourceWallet === "coca_cola_earning") {
+    const [directActiveReferrals, withdrawalRules] = await Promise.all([
+      getDirectActiveReferralCount(db, withdrawalPreCheck.uid),
+      getWithdrawalRules(db),
+    ]);
+    const requiredLevel = withdrawalRules?.cocaColaRequiredLevel ?? DEFAULT_COCA_COLA_REQUIRED_LEVEL;
+    if (directActiveReferrals < requiredLevel) {
+      throw new Error(
+        `This user no longer meets the required Level ${requiredLevel} (has ${directActiveReferrals} direct active referrals). Please reject this withdrawal instead.`,
+      );
+    }
+  }
+
+  const txnRef = newTransactionRef(db);
   let capturedAmount = 0;
 
   await runTransaction(db, async (transaction) => {
@@ -36,18 +72,21 @@ export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer
     }
     const user = userSnap.data();
 
-    if (withdrawal.amount > user.walletBalance) {
-      throw new Error("This user's current balance is lower than the withdrawal amount.");
+    const sourceField = withdrawal.sourceWallet === "current_balance" ? "currentBalance" : "cocaColaEarning";
+    const currentSourceBalance = user[sourceField];
+
+    if (withdrawal.amount > currentSourceBalance) {
+      throw new Error("This user's balance is lower than the withdrawal amount.");
     }
 
-    const newBalance = user.walletBalance - withdrawal.amount;
+    const newSourceBalance = currentSourceBalance - withdrawal.amount;
 
     transaction.update(userRef, {
-      walletBalance: newBalance,
+      [sourceField]: newSourceBalance,
       updatedAt: serverTimestamp(),
     });
     transaction.update(walletDocRef(db, withdrawal.uid), {
-      balance: newBalance,
+      [sourceField]: newSourceBalance,
       updatedAt: serverTimestamp(),
     });
     transaction.update(withdrawalDocRef(db, withdrawalId), {

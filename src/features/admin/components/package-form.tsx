@@ -11,6 +11,7 @@ import {
   validatePackageName,
   validateNonNegativeAmount,
   validateDurationDays,
+  validateDailyTaskLimit,
   parseFeaturesInput,
 } from "@/features/admin/lib/package-validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
@@ -42,6 +43,9 @@ export function PackageForm({ initialPackage, onDone, onCancel }: PackageFormPro
   const [durationDays, setDurationDays] = useState(
     initialPackage ? String(initialPackage.durationDays) : "",
   );
+  const [dailyTaskLimit, setDailyTaskLimit] = useState(
+    initialPackage ? String(initialPackage.dailyTaskLimit) : "",
+  );
   const [features, setFeatures] = useState(initialPackage?.features.join("\n") ?? "");
   const [isActive, setIsActive] = useState(initialPackage?.isActive ?? true);
 
@@ -61,6 +65,7 @@ export function PackageForm({ initialPackage, onDone, onCancel }: PackageFormPro
       withdrawalLimitPerRequest: Number(withdrawalLimitPerRequest),
       dailyWithdrawalLimit: Number(dailyWithdrawalLimit),
       durationDays: Number(durationDays),
+      dailyTaskLimit: Number(dailyTaskLimit),
       features: parseFeaturesInput(features),
       isActive,
     };
@@ -74,6 +79,7 @@ export function PackageForm({ initialPackage, onDone, onCancel }: PackageFormPro
       dailyWithdrawalLimit:
         validateNonNegativeAmount(input.dailyWithdrawalLimit, "Daily withdrawal limit") ?? undefined,
       durationDays: validateDurationDays(input.durationDays) ?? undefined,
+      dailyTaskLimit: validateDailyTaskLimit(input.dailyTaskLimit) ?? undefined,
     };
     setFieldErrors(errors);
     if (Object.values(errors).some(Boolean)) return;
@@ -156,6 +162,15 @@ export function PackageForm({ initialPackage, onDone, onCancel }: PackageFormPro
           value={durationDays}
           onChange={(event) => setDurationDays(event.target.value)}
           error={fieldErrors.durationDays}
+        />
+        <FormField
+          label="Daily task limit (tasks/day)"
+          type="number"
+          inputMode="numeric"
+          step={1}
+          value={dailyTaskLimit}
+          onChange={(event) => setDailyTaskLimit(event.target.value)}
+          error={fieldErrors.dailyTaskLimit}
         />
       </div>
 

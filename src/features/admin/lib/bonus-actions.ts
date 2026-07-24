@@ -163,16 +163,19 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
       }
     }
 
-    const newBalance = user.walletBalance + freshClaim.bonusAmount;
+    // Bonus/salary tier payouts are credited to Coca-Cola Earning (same
+    // wallet as package daily earnings) — walletBalance is reserved
+    // exclusively for top-up deposits and must never receive earned money.
+    const newCocaColaEarning = user.cocaColaEarning + freshClaim.bonusAmount;
     const newTotalEarnings = user.totalEarnings + freshClaim.bonusAmount;
 
     transaction.update(userDocRef(db, freshClaim.uid), {
-      walletBalance: newBalance,
+      cocaColaEarning: newCocaColaEarning,
       totalEarnings: newTotalEarnings,
       updatedAt: serverTimestamp(),
     });
     transaction.update(walletDocRef(db, freshClaim.uid), {
-      balance: newBalance,
+      cocaColaEarning: newCocaColaEarning,
       totalEarnings: newTotalEarnings,
       updatedAt: serverTimestamp(),
     });

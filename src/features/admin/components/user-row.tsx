@@ -33,7 +33,10 @@ export function UserRow({ user, packageNameById }: UserRowProps) {
       </div>
 
       <div className="flex flex-shrink-0 items-center gap-4">
-        <p className="text-sm font-semibold text-white">{formatCurrency(user.walletBalance)}</p>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-wide text-white/40">Total earnings</p>
+          <p className="text-sm font-semibold text-white">{formatCurrency(user.totalEarnings)}</p>
+        </div>
         <Link href={`/admin/users/${user.uid}`}>
           <Button variant="outline" size="sm">
             Manage

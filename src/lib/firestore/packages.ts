@@ -30,6 +30,10 @@ export type PackageDoc = {
   // How long a purchase of this package stays active once approved — see
   // users/{uid}.packageExpiresAt, computed as activation + durationDays.
   durationDays: number;
+  // Maximum number of task completions per day for a holder of this
+  // package — resets every rolling 24h window, same mechanism as an
+  // individual daily task's own cooldown (see taskCooldowns.ts).
+  dailyTaskLimit: number;
   // Marketing bullet points shown on the packages page; purely descriptive,
   // never used in any earning/withdrawal/expiry calculation.
   features: string[];
@@ -67,6 +71,7 @@ export type PackageInput = {
   withdrawalLimitPerRequest: number;
   dailyWithdrawalLimit: number;
   durationDays: number;
+  dailyTaskLimit: number;
   features: string[];
   isActive: boolean;
 };

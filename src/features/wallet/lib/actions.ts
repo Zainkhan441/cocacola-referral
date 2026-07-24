@@ -1,7 +1,7 @@
 import { runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { createDepositRequest, buildDepositData, newDepositRef } from "@/lib/firestore/deposits";
-import { createWithdrawalRequest } from "@/lib/firestore/withdrawals";
+import { createWithdrawalRequest, type WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
 
 function requireDb() {
@@ -57,6 +57,7 @@ type SubmitWithdrawalInput = {
   uid: string;
   userName: string;
   amount: number;
+  sourceWallet: WithdrawalSourceWallet;
   accountName: string;
   accountNumber: string;
 };

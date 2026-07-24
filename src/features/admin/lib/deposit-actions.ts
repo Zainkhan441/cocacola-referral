@@ -46,8 +46,10 @@ type ChainStep = {
 // any remaining time on a previous package is discarded, never stacked or
 // extended, whether this is a first purchase, a renewal, or an upgrade.
 //
-// Referral payout (Milestone 11): walks the purchaser's users/{uid}.referredBy
-// chain up to 12 levels. For each ancestor reached, their teamMembers record
+// Referral payout: walks the purchaser's users/{uid}.referredBy chain up to
+// 12 levels, crediting each qualifying ancestor's Staff Earning wallet
+// (never Current Balance/Coca-Cola Earning/Deposit — commissions are
+// entirely separate money). For each ancestor reached, their teamMembers record
 // for this purchaser is synced with the new package/expiry (regardless of
 // whether a reward is paid) so the ancestor's Team page always reflects real
 // package state. A reward is paid at a level only if: that level is enabled
@@ -143,6 +145,11 @@ export async function approveDeposit(depositId: string, reviewer: Reviewer): Pro
         packageActivatedAt: activatedAt,
         packageExpiresAt: expiresAt,
         pendingPackagePurchaseId: null,
+        // "Always fresh" activation resets the daily-earning cooldown too —
+        // the first automatic Coca-Cola Earning credit becomes eligible
+        // exactly 24h after THIS activation, never carried over from a
+        // previous package.
+        lastDailyClaimAt: activatedAt,
         updatedAt: serverTimestamp(),
       });
 
@@ -241,16 +248,16 @@ export async function approveDeposit(depositId: string, reviewer: Reviewer): Pro
       const amount = Math.round(rawAmount);
       if (amount <= 0) continue;
 
-      const newBalance = ancestorData.walletBalance + amount;
+      const newStaffEarning = ancestorData.staffEarning + amount;
       const newTotalEarnings = ancestorData.totalEarnings + amount;
 
       transaction.update(userDocRef(db, step.ancestorUid), {
-        walletBalance: newBalance,
+        staffEarning: newStaffEarning,
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });
       transaction.update(walletDocRef(db, step.ancestorUid), {
-        balance: newBalance,
+        staffEarning: newStaffEarning,
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });

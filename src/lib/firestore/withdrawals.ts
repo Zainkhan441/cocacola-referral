@@ -21,6 +21,9 @@ const WITHDRAWAL_METHOD = "easypaisa" as const;
 
 export type WithdrawalStatus = "pending" | "approved" | "rejected" | "paid";
 export type WithdrawalMethod = typeof WITHDRAWAL_METHOD;
+// Which of the two independently-withdrawable wallets this request draws
+// from — Staff Earning has no withdrawal path (see users/{uid}.staffEarning).
+export type WithdrawalSourceWallet = "current_balance" | "coca_cola_earning";
 
 export type WithdrawalDoc = {
   uid: string;
@@ -28,6 +31,7 @@ export type WithdrawalDoc = {
   // who a request is from without an extra read per row.
   userName: string;
   amount: number;
+  sourceWallet: WithdrawalSourceWallet;
   method: WithdrawalMethod;
   accountNumber: string;
   accountName: string;
@@ -93,6 +97,7 @@ type CreateWithdrawalRequestInput = {
   uid: string;
   userName: string;
   amount: number;
+  sourceWallet: WithdrawalSourceWallet;
   accountName: string;
   accountNumber: string;
 };
@@ -105,6 +110,7 @@ export async function createWithdrawalRequest(
     uid: input.uid,
     userName: input.userName,
     amount: input.amount,
+    sourceWallet: input.sourceWallet,
     method: WITHDRAWAL_METHOD,
     accountName: input.accountName,
     accountNumber: input.accountNumber,

@@ -5,7 +5,11 @@ const WALLETS_PATH = "wallets";
 
 export type WalletDoc = {
   uid: string;
+  // Deposit/Recharge Balance mirror — see users/{uid}.walletBalance.
   balance: number;
+  currentBalance: number;
+  cocaColaEarning: number;
+  staffEarning: number;
   totalEarnings: number;
   pendingEarnings: number;
   updatedAt: Timestamp;
@@ -26,6 +30,9 @@ export function buildInitialWalletData(uid: string) {
   return {
     uid,
     balance: 0,
+    currentBalance: 0,
+    cocaColaEarning: 0,
+    staffEarning: 0,
     totalEarnings: 0,
     pendingEarnings: 0,
     updatedAt: serverTimestamp(),

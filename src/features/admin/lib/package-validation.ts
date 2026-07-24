@@ -16,6 +16,13 @@ export function validateDurationDays(value: number): string | null {
   return null;
 }
 
+export function validateDailyTaskLimit(value: number): string | null {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    return "Daily task limit must be a whole number, 0 or greater.";
+  }
+  return null;
+}
+
 // Parses the admin form's newline-separated textarea into a clean array —
 // blank lines are dropped rather than treated as a validation error.
 export function parseFeaturesInput(raw: string): string[] {

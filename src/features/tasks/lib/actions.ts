@@ -8,6 +8,7 @@ import {
   newTaskSubmissionRef,
 } from "@/lib/firestore/task-submissions";
 import { taskCooldownDocRef } from "@/lib/firestore/task-cooldowns";
+import { taskDailyCounterDocRef } from "@/lib/firestore/task-daily-counters";
 
 function requireDb() {
   if (!db) {
@@ -28,14 +29,16 @@ type SubmitTaskCompletionInput = {
   proofScreenshotUrl: string | null;
 };
 
-// Self-service: mirrors claimDailyEarning's shape — every value written is
+// Self-service: mirrors runAutomaticDailyEarning's shape — every value written is
 // re-derived from the task's own current document inside the transaction
 // (never trusted from a parameter), and firestore.rules independently
 // re-validates the same eligibility/window checks, so a hand-crafted request
 // bypassing this function can't submit early, twice, or for the wrong
 // amount. One-time tasks are deduped via a deterministic submission doc id;
-// daily tasks via the sibling taskCooldowns rolling-24h marker — see
-// task-submissions.ts / task-cooldowns.ts for why.
+// daily tasks via the sibling taskCooldowns rolling-24h marker; and every
+// task (regardless of its own frequency) additionally counts against the
+// user's active package's own dailyTaskLimit via taskDailyCounters — see
+// task-submissions.ts / task-cooldowns.ts / task-daily-counters.ts for why.
 export async function submitTaskCompletion(input: SubmitTaskCompletionInput): Promise<void> {
   const firestore = requireDb();
 
@@ -110,6 +113,18 @@ export async function submitTaskCompletion(input: SubmitTaskCompletionInput): Pr
       }
     }
 
+    // Package-wise daily task count limit — caps total completions across
+    // EVERY task (distinct from the per-task cooldown above), reset every
+    // rolling 24h window.
+    const dailyTaskLimit = packageSnap.data().dailyTaskLimit;
+    const counterRef = taskDailyCounterDocRef(firestore, input.uid);
+    const counterSnap = await transaction.get(counterRef);
+    const counterData = counterSnap.exists() ? counterSnap.data() : null;
+    const counterIsFresh = counterData != null && now - counterData.windowStartAt.toMillis() < COOLDOWN_MS;
+    if (counterIsFresh && counterData!.count >= dailyTaskLimit) {
+      throw new Error("You've reached your package's daily task limit. Please check back after 24 hours.");
+    }
+
     // --- Write phase ---
     transaction.set(submissionRef, {
       taskId: input.taskId,
@@ -131,6 +146,18 @@ export async function submitTaskCompletion(input: SubmitTaskCompletionInput): Pr
         uid: input.uid,
         taskId: input.taskId,
         lastSubmittedAt: serverTimestamp(),
+      });
+    }
+
+    if (counterIsFresh) {
+      transaction.update(counterRef, {
+        count: counterData!.count + 1,
+      });
+    } else {
+      transaction.set(counterRef, {
+        uid: input.uid,
+        count: 1,
+        windowStartAt: serverTimestamp(),
       });
     }
   });

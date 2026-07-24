@@ -4,6 +4,7 @@ import { typedCollection } from "@/lib/firestore/converter";
 const SETTINGS_PATH = "settings";
 const GLOBAL_SETTINGS_ID = "global";
 const OFFICIAL_CHANNEL_SETTINGS_ID = "officialChannel";
+const WITHDRAWAL_RULES_SETTINGS_ID = "withdrawalRules";
 
 // A singleton config document, admin-managed. Absence of this document
 // means every flag defaults to its "on" state — see firestore.rules
@@ -77,6 +78,39 @@ export type OfficialChannelInput = {
 
 export async function setOfficialChannel(db: Firestore, input: OfficialChannelInput): Promise<void> {
   await setDoc(officialChannelDocRef(db), {
+    ...input,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// A third singleton doc in the same `settings` collection — the two
+// admin-editable withdrawal gates: the minimum amount a Current Balance
+// withdrawal must reach, and the direct-active-referral "Level" a
+// Coca-Cola Earning withdrawal requires. Absence of this document falls
+// back to the platform defaults (Rs 500, Level 10) — see firestore.rules
+// `withdrawalRulesConfig()`.
+export type WithdrawalRulesDoc = {
+  currentBalanceMinWithdraw: number;
+  cocaColaRequiredLevel: number;
+  updatedAt: Timestamp;
+};
+
+export function withdrawalRulesDocRef(db: Firestore) {
+  return doc(typedCollection<WithdrawalRulesDoc>(db, SETTINGS_PATH), WITHDRAWAL_RULES_SETTINGS_ID);
+}
+
+export async function getWithdrawalRules(db: Firestore): Promise<WithdrawalRulesDoc | null> {
+  const snapshot = await getDoc(withdrawalRulesDocRef(db));
+  return snapshot.exists() ? snapshot.data() : null;
+}
+
+export type WithdrawalRulesInput = {
+  currentBalanceMinWithdraw: number;
+  cocaColaRequiredLevel: number;
+};
+
+export async function setWithdrawalRules(db: Firestore, input: WithdrawalRulesInput): Promise<void> {
+  await setDoc(withdrawalRulesDocRef(db), {
     ...input,
     updatedAt: serverTimestamp(),
   });
