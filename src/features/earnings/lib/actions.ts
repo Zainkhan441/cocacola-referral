@@ -5,6 +5,7 @@ import { walletDocRef } from "@/lib/firestore/wallets";
 import { packageDocRef } from "@/lib/firestore/packages";
 import { newDailyRewardRef, todayDateStringUtc } from "@/lib/firestore/daily-rewards";
 import { newTransactionRef } from "@/lib/firestore/transactions";
+import { isNewUtcDay } from "@/lib/date-utils";
 
 function requireDb() {
   if (!db) {
@@ -15,8 +16,6 @@ function requireDb() {
   return db;
 }
 
-const CLAIM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-
 // Automatic, silent daily package earning — no user action triggers this; a
 // dashboard-mounted effect calls it opportunistically for the signed-in
 // user, and it's a harmless no-op whenever nothing is actually due (unlike
@@ -24,10 +23,11 @@ const CLAIM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 // Every value written is re-derived from the caller's own current package
 // inside the transaction (never trusted from a parameter), and
 // firestore.rules independently re-validates the exact same formula and
-// cooldown — so even a hand-crafted request bypassing this function
-// entirely can't credit early or for a different amount. Credits Coca-Cola
-// Earning only (never Current Balance/Staff Earning/Deposit). Returns the
-// credited amount, or null if nothing was due this call.
+// UTC calendar-day gate (canClaimDaily/isNewUtcDay) — so even a
+// hand-crafted request bypassing this function entirely can't credit twice
+// in the same UTC day or for a different amount. Credits Coca-Cola Earning
+// only (never Current Balance/Staff Earning/Deposit). Returns the credited
+// amount, or null if nothing was due this call.
 export async function runAutomaticDailyEarning(uid: string): Promise<number | null> {
   const firestore = requireDb();
   const dailyRewardRef = newDailyRewardRef(firestore);
@@ -48,9 +48,8 @@ export async function runAutomaticDailyEarning(uid: string): Promise<number | nu
 
     if (!user.packageExpiresAt || Date.now() >= user.packageExpiresAt.toMillis()) return;
 
-    if (user.lastDailyClaimAt) {
-      const nextClaimAtMs = user.lastDailyClaimAt.toMillis() + CLAIM_COOLDOWN_MS;
-      if (Date.now() < nextClaimAtMs) return;
+    if (user.lastDailyClaimAt && !isNewUtcDay(user.lastDailyClaimAt.toMillis(), Date.now())) {
+      return;
     }
 
     const dailyEarning = pkg.dailyEarning;

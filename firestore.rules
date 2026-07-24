@@ -111,15 +111,30 @@ service cloud.firestore {
         : get(/databases/$(database)/documents/settings/withdrawalRules).data.currentBalanceMinWithdraw;
     }
 
+    // True once `now` falls on a later UTC calendar date than `prev` —
+    // compared explicitly by year/month/day (not by elapsed duration), so a
+    // package activated at 23:59 UTC becomes eligible for its first credit
+    // one second later at 00:00 UTC, not a full 24h afterward. Firestore
+    // timestamps are always UTC, so "00:00 server time" and "00:00 UTC" are
+    // the same instant here.
+    function isNewUtcDay(prev, now) {
+      return now.year() > prev.year()
+        || (now.year() == prev.year() && now.month() > prev.month())
+        || (now.year() == prev.year() && now.month() == prev.month() && now.day() > prev.day());
+    }
+
     // `user` is an already-resolved users/{uid} data map (either `resource.data`
     // when called from within the users/{uid} rule itself, or `userData(uid)`
     // when called from a sibling collection's rule) — never re-fetched here,
-    // so this works identically in both places. The rolling 24h cooldown on
-    // lastDailyClaimAt is the sole anti-replay gate: Firestore rules cannot
-    // compute a calendar-date string, so "one claim per day" is enforced as
-    // "at least 24h since your own last successful claim" instead. A
-    // package that's globally active can still be individually expired for
-    // this one user (packageExpiresAt in the past) — both are checked.
+    // so this works identically in both places. The anti-replay gate is a
+    // real UTC calendar-day boundary (see isNewUtcDay), not a rolling 24h
+    // window — a package's daily earning becomes claimable once at the
+    // start of every new UTC day it's active for, never twice on the same
+    // day, matching "credits once per day starting the day after
+    // activation" exactly (lastDailyClaimAt is seeded to activatedAt at
+    // activation time, see approveDeposit). A package that's globally
+    // active can still be individually expired for this one user
+    // (packageExpiresAt in the past) — both are checked.
     function canClaimDaily(user) {
       return dailyClaimsGloballyEnabled()
         && user.package != null
@@ -127,8 +142,7 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/packages/$(user.package)).data.isActive == true
         && user.packageExpiresAt != null
         && request.time < user.packageExpiresAt
-        && (user.lastDailyClaimAt == null
-            || request.time > user.lastDailyClaimAt + duration.value(24, "h"));
+        && (user.lastDailyClaimAt == null || isNewUtcDay(user.lastDailyClaimAt, request.time));
     }
 
     // The owner path: a plain profile edit (e.g. the emailVerified sync
@@ -336,10 +350,13 @@ service cloud.firestore {
     }
 
     function adminCanReviewRequest() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "reviewedBy", "updatedAt"])
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "reviewedBy", "reviewNote", "updatedAt"])
         && resource.data.status == "pending"
         && request.resource.data.status in ["approved", "rejected"]
-        && request.resource.data.reviewedBy == request.auth.uid;
+        && request.resource.data.reviewedBy == request.auth.uid
+        && (!("reviewNote" in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.reviewNote == null
+            || request.resource.data.reviewNote is string);
     }
 
     // Users may only ever create their own deposit request, always starting
@@ -770,23 +787,33 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // One doc per (announcement, recipient) pair, doc id
-    // `${announcementId}_${uid}` — deterministic so a re-run fan-out can
-    // never double-deliver the same broadcast to the same user. Created
-    // only by the admin send action; the recipient may only ever flip their
-    // own `read`/`readAt`, nothing else (identity/content is frozen).
+    // Two shapes in one collection: an admin broadcast ("announcement",
+    // doc id `${announcementId}_${uid}` — deterministic so a re-run fan-out
+    // can never double-deliver the same broadcast to the same user), or a
+    // system-generated transactional notification about the recipient's own
+    // deposit/withdrawal/task submission status change (auto-id, written
+    // only inside the same atomic transaction that made the change — see
+    // deposit-actions.ts/withdrawal-actions.ts/task-actions.ts). Either way,
+    // only an admin-run action ever creates one; the recipient may only
+    // ever flip their own `read`/`readAt`, nothing else (identity/content is
+    // frozen).
     match /userNotifications/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isAdmin()
-        && id == request.resource.data.announcementId + "_" + request.resource.data.uid
         && request.resource.data.uid is string
         && exists(/databases/$(database)/documents/users/$(request.resource.data.uid))
-        && request.resource.data.announcementId is string
-        && exists(/databases/$(database)/documents/announcements/$(request.resource.data.announcementId))
         && request.resource.data.title is string
         && request.resource.data.body is string
         && request.resource.data.read == false
-        && request.resource.data.readAt == null;
+        && request.resource.data.readAt == null
+        && (
+             (request.resource.data.kind == "announcement"
+               && id == request.resource.data.announcementId + "_" + request.resource.data.uid
+               && request.resource.data.announcementId is string
+               && exists(/databases/$(database)/documents/announcements/$(request.resource.data.announcementId)))
+             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission"]
+               && request.resource.data.announcementId == null)
+           );
       allow update: if isSignedIn()
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read", "readAt"])
@@ -860,7 +887,9 @@ service cloud.firestore {
           && (request.resource.data.bannerText == null || request.resource.data.bannerText is string)
           && (request.resource.data.contactEmail == null || request.resource.data.contactEmail is string)
           && (request.resource.data.contactPhone == null || request.resource.data.contactPhone is string)
-          && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string))
+          && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string)
+          && (request.resource.data.easypaisaAccountNumber == null || request.resource.data.easypaisaAccountNumber is string)
+          && (request.resource.data.easypaisaAccountName == null || request.resource.data.easypaisaAccountName is string))
         || (settingId == "withdrawalRules"
           && request.resource.data.currentBalanceMinWithdraw is number && request.resource.data.currentBalanceMinWithdraw >= 0
           && request.resource.data.cocaColaRequiredLevel is number && request.resource.data.cocaColaRequiredLevel >= 0)

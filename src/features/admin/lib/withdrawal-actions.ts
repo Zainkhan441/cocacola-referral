@@ -1,15 +1,21 @@
 import { getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
-import { withdrawalDocRef } from "@/lib/firestore/withdrawals";
+import { withdrawalDocRef, type WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
 import { newTransactionRef } from "@/lib/firestore/transactions";
 import { getDirectActiveReferralCount } from "@/lib/firestore/team-members";
 import { getWithdrawalRules } from "@/lib/firestore/settings";
+import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 
 const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
+
+const SOURCE_WALLET_LABELS: Record<WithdrawalSourceWallet, string> = {
+  current_balance: "Current Balance",
+  coca_cola_earning: "Coca-Cola Earning",
+};
 
 // Approves a pending withdrawal: deducts the requested source wallet — Current
 // Balance or Coca-Cola Earning, per withdrawal.sourceWallet — from both
@@ -27,7 +33,11 @@ const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
 // transaction starts, exactly mirroring approveBonusClaim's live team-
 // aggregate re-check. If the requester no longer meets the Level, this
 // throws without crediting anything, so the admin can reject instead.
-export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer): Promise<void> {
+export async function approveWithdrawal(
+  withdrawalId: string,
+  reviewer: Reviewer,
+  note?: string | null,
+): Promise<void> {
   const db = requireDb();
 
   const withdrawalSnapPreCheck = await getDoc(withdrawalDocRef(db, withdrawalId));
@@ -53,6 +63,7 @@ export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer
   }
 
   const txnRef = newTransactionRef(db);
+  const notificationRef = newSystemNotificationRef(db);
   let capturedAmount = 0;
 
   await runTransaction(db, async (transaction) => {
@@ -92,6 +103,7 @@ export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer
     transaction.update(withdrawalDocRef(db, withdrawalId), {
       status: "approved",
       reviewedBy: reviewer.adminUid,
+      reviewNote: note?.trim() || null,
       updatedAt: serverTimestamp(),
     });
     transaction.set(txnRef, {
@@ -102,6 +114,15 @@ export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer
       description: `Withdrawal to ${withdrawal.accountNumber}`,
       createdAt: serverTimestamp(),
     });
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: withdrawal.uid,
+        kind: "withdrawal",
+        title: "Withdrawal approved",
+        body: `Your ${formatCurrency(withdrawal.amount)} ${SOURCE_WALLET_LABELS[withdrawal.sourceWallet]} withdrawal was approved and sent to ${withdrawal.accountNumber}.`,
+      }),
+    );
 
     capturedAmount = withdrawal.amount;
   });
@@ -112,27 +133,46 @@ export async function approveWithdrawal(withdrawalId: string, reviewer: Reviewer
     action: "withdrawal.approved",
     targetType: "withdrawal",
     targetId: withdrawalId,
-    details: `Approved a ${formatCurrency(capturedAmount)} withdrawal`,
+    details: `Approved a ${formatCurrency(capturedAmount)} withdrawal` + (note?.trim() ? ` — note: ${note.trim()}` : ""),
   });
 }
 
-export async function rejectWithdrawal(withdrawalId: string, reviewer: Reviewer): Promise<void> {
+export async function rejectWithdrawal(
+  withdrawalId: string,
+  reviewer: Reviewer,
+  note?: string | null,
+): Promise<void> {
   const db = requireDb();
+  const notificationRef = newSystemNotificationRef(db);
 
   await runTransaction(db, async (transaction) => {
     const withdrawalSnap = await transaction.get(withdrawalDocRef(db, withdrawalId));
     if (!withdrawalSnap.exists()) {
       throw new Error("This withdrawal request no longer exists.");
     }
-    if (withdrawalSnap.data().status !== "pending") {
+    const withdrawal = withdrawalSnap.data();
+    if (withdrawal.status !== "pending") {
       throw new Error("This withdrawal request has already been reviewed.");
     }
 
     transaction.update(withdrawalDocRef(db, withdrawalId), {
       status: "rejected",
       reviewedBy: reviewer.adminUid,
+      reviewNote: note?.trim() || null,
       updatedAt: serverTimestamp(),
     });
+
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: withdrawal.uid,
+        kind: "withdrawal",
+        title: "Withdrawal rejected",
+        body: note?.trim()
+          ? `Your ${formatCurrency(withdrawal.amount)} ${SOURCE_WALLET_LABELS[withdrawal.sourceWallet]} withdrawal was rejected: ${note.trim()}`
+          : `Your ${formatCurrency(withdrawal.amount)} ${SOURCE_WALLET_LABELS[withdrawal.sourceWallet]} withdrawal was rejected. Please contact support for details.`,
+      }),
+    );
   });
 
   await logActivity(db, {
@@ -141,6 +181,6 @@ export async function rejectWithdrawal(withdrawalId: string, reviewer: Reviewer)
     action: "withdrawal.rejected",
     targetType: "withdrawal",
     targetId: withdrawalId,
-    details: "Rejected withdrawal request",
+    details: "Rejected withdrawal request" + (note?.trim() ? ` — note: ${note.trim()}` : ""),
   });
 }

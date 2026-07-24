@@ -37,6 +37,10 @@ export type DepositDoc = {
   packageId: string | null;
   status: DepositStatus;
   reviewedBy: string | null;
+  // Optional admin-entered context for the review decision (e.g. why a
+  // deposit was rejected) — shown to the user alongside the status-change
+  // notification. Null until an admin reviews the request.
+  reviewNote: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 };
@@ -124,6 +128,7 @@ export function buildDepositData(input: CreateDepositRequestInput) {
     packageId: input.packageId,
     status: "pending" as const,
     reviewedBy: null,
+    reviewNote: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };

@@ -37,6 +37,10 @@ export type WithdrawalDoc = {
   accountName: string;
   status: WithdrawalStatus;
   reviewedBy: string | null;
+  // Optional admin-entered context for the review decision (e.g. why a
+  // withdrawal was rejected) — shown to the user alongside the
+  // status-change notification. Null until an admin reviews the request.
+  reviewNote: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 };
@@ -116,6 +120,7 @@ export async function createWithdrawalRequest(
     accountNumber: input.accountNumber,
     status: "pending",
     reviewedBy: null,
+    reviewNote: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

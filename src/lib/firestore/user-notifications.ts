@@ -22,16 +22,26 @@ export const NOTIFICATION_FEED_LIMIT = 20;
 // that so each batch commit stays comfortably inside limits.
 export const NOTIFICATION_FANOUT_CHUNK_SIZE = 400;
 
-// One document per (announcement, recipient) pair, doc id
-// `${announcementId}_${uid}` — deterministic so re-running a fan-out (e.g.
-// after a partial failure) can never deliver the same broadcast twice to the
-// same user. Denormalizes title/body so the recipient's feed never needs a
-// second read of the source announcement. Written only by the admin send
-// action (features/admin/lib/notification-actions.ts); read/read-state
-// updates are the recipient's own.
+// Either an admin broadcast ("announcement", fanned out to many recipients,
+// doc id `${announcementId}_${uid}`) or a system-generated transactional
+// notification about one specific event on the recipient's own account
+// (deposit/withdrawal/task submission approved or rejected) — always
+// exactly one recipient, auto-id, written inside the same atomic
+// approve/reject transaction as the underlying status change, so it can
+// never be delivered without the change it describes actually having
+// happened (or vice versa). Unlike announcement broadcasts, system
+// notifications are never gated by notificationsEnabled — they describe the
+// user's own money/status, not marketing content, so a user can't silence
+// finding out their withdrawal was approved.
+export type NotificationKind = "announcement" | "deposit" | "withdrawal" | "task_submission";
+
 export type UserNotificationDoc = {
   uid: string;
-  announcementId: string;
+  kind: NotificationKind;
+  // The announcement doc id when kind is "announcement"; null for every
+  // system-generated kind (there's no shared source document to point at —
+  // the notification IS the record).
+  announcementId: string | null;
   title: string;
   body: string;
   read: boolean;
@@ -47,6 +57,18 @@ export function userNotificationDocRef(db: Firestore, announcementId: string, ui
   return doc(userNotificationsCollection(db), `${announcementId}_${uid}`);
 }
 
+// Read/mark-read operate on the notification's own doc id (available from
+// any query snapshot) rather than reconstructing it — the only scheme that
+// works uniformly for both deterministic announcement ids and auto-id
+// system notifications.
+export function userNotificationDocRefById(db: Firestore, id: string) {
+  return doc(userNotificationsCollection(db), id);
+}
+
+export function newSystemNotificationRef(db: Firestore) {
+  return doc(userNotificationsCollection(db));
+}
+
 export function buildUserNotificationData(input: {
   uid: string;
   announcementId: string;
@@ -55,7 +77,29 @@ export function buildUserNotificationData(input: {
 }) {
   return {
     uid: input.uid,
+    kind: "announcement" as const,
     announcementId: input.announcementId,
+    title: input.title,
+    body: input.body,
+    read: false,
+    readAt: null,
+    createdAt: serverTimestamp(),
+  };
+}
+
+// Built inline (not via a shared builder) at each system-notification call
+// site so callers pass `kind` explicitly — see deposit-actions.ts,
+// withdrawal-actions.ts, task-actions.ts.
+export function buildSystemNotificationData(input: {
+  uid: string;
+  kind: Exclude<NotificationKind, "announcement">;
+  title: string;
+  body: string;
+}) {
+  return {
+    uid: input.uid,
+    kind: input.kind,
+    announcementId: null,
     title: input.title,
     body: input.body,
     read: false,
@@ -97,12 +141,8 @@ export function myNotificationsPageQuery(
       );
 }
 
-export async function markNotificationRead(
-  db: Firestore,
-  announcementId: string,
-  uid: string,
-): Promise<void> {
-  await updateDoc(userNotificationDocRef(db, announcementId, uid), {
+export async function markNotificationRead(db: Firestore, notificationId: string): Promise<void> {
+  await updateDoc(userNotificationDocRefById(db, notificationId), {
     read: true,
     readAt: serverTimestamp(),
   });
@@ -112,12 +152,10 @@ export async function markNotificationRead(
 // "mark all as read" on the notifications feed the user currently has
 // loaded. Firestore rules independently re-validate each individual update
 // the same way markNotificationRead does.
-export async function markNotificationsReadBatch(
-  db: Firestore,
-  refs: ReturnType<typeof userNotificationDocRef>[],
-): Promise<void> {
-  if (refs.length === 0) return;
+export async function markNotificationsReadBatch(db: Firestore, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
   const batch = writeBatch(db);
+  const refs = ids.map((id) => userNotificationDocRefById(db, id));
   for (const ref of refs) {
     batch.update(ref, { read: true, readAt: serverTimestamp() });
   }

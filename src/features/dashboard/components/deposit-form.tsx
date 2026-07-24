@@ -17,6 +17,7 @@ import {
   DEPOSIT_MAX_AMOUNT,
 } from "@/features/wallet/lib/validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
+import { EasypaisaPaymentDetails } from "@/features/wallet/components/easypaisa-payment-details";
 
 type FieldErrors = {
   amount?: string;
@@ -85,6 +86,8 @@ export function DepositForm() {
           Easypaisa
         </span>
       </div>
+
+      <EasypaisaPaymentDetails />
 
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
         {formError && <Alert variant="error">{formError}</Alert>}

@@ -34,13 +34,13 @@ export default function NotificationsPage() {
 
   async function handleMarkAllRead() {
     if (!user) return;
-    await markAllNotificationsRead(user.uid, notifications).catch(() => {});
+    await markAllNotificationsRead(notifications).catch(() => {});
     retry();
   }
 
-  async function handleOpen(announcementId: string, read: boolean) {
+  async function handleOpen(notificationId: string, read: boolean) {
     if (!user || read) return;
-    await markOneNotificationRead(user.uid, announcementId).catch(() => {});
+    await markOneNotificationRead(notificationId).catch(() => {});
     retry();
   }
 
@@ -110,7 +110,7 @@ export default function NotificationsPage() {
                   <button
                     key={notification.id}
                     type="button"
-                    onClick={() => handleOpen(notification.announcementId, notification.read)}
+                    onClick={() => handleOpen(notification.id, notification.read)}
                     className={`flex flex-col gap-1 rounded-2xl border border-white/10 p-4 text-left transition-colors hover:border-white/20 sm:p-5 ${
                       notification.read ? "bg-surface-2" : "bg-brand/5"
                     }`}

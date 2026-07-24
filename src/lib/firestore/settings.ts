@@ -52,6 +52,13 @@ export type OfficialChannelDoc = {
   contactEmail: string | null;
   contactPhone: string | null;
   contactAddress: string | null;
+  // The account a user must pay a deposit/package-purchase into — shown on
+  // both deposit forms (DepositForm, PackagePurchaseForm) right above the
+  // reference ID/screenshot fields. Both null until an admin configures
+  // them, in which case the deposit forms show a "contact support" fallback
+  // instead of an empty/broken payment target.
+  easypaisaAccountNumber: string | null;
+  easypaisaAccountName: string | null;
   updatedAt: Timestamp;
 };
 
@@ -74,6 +81,8 @@ export type OfficialChannelInput = {
   contactEmail: string | null;
   contactPhone: string | null;
   contactAddress: string | null;
+  easypaisaAccountNumber: string | null;
+  easypaisaAccountName: string | null;
 };
 
 export async function setOfficialChannel(db: Firestore, input: OfficialChannelInput): Promise<void> {

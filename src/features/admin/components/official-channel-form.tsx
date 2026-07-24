@@ -55,6 +55,12 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [contactPhone, setContactPhone] = useState(initial?.contactPhone ?? "");
   const [contactAddress, setContactAddress] = useState(initial?.contactAddress ?? "");
+  const [easypaisaAccountNumber, setEasypaisaAccountNumber] = useState(
+    initial?.easypaisaAccountNumber ?? "",
+  );
+  const [easypaisaAccountName, setEasypaisaAccountName] = useState(
+    initial?.easypaisaAccountName ?? "",
+  );
 
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -79,6 +85,8 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
           contactEmail: contactEmail.trim() || null,
           contactPhone: contactPhone.trim() || null,
           contactAddress: contactAddress.trim() || null,
+          easypaisaAccountNumber: easypaisaAccountNumber.trim() || null,
+          easypaisaAccountName: easypaisaAccountName.trim() || null,
         },
         { adminUid, adminName },
       );
@@ -163,6 +171,27 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
           type="text"
           value={contactAddress}
           onChange={(event) => setContactAddress(event.target.value)}
+        />
+      </div>
+
+      <h2 className="text-sm font-semibold text-white">Easypaisa payment details</h2>
+      <p className="text-xs text-white/50">
+        Shown to every user on the Deposit and Package Purchase forms — this is the account they
+        must pay into before submitting a reference ID and proof screenshot.
+      </p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <FormField
+          label="Easypaisa account number"
+          type="text"
+          placeholder="03XXXXXXXXX"
+          value={easypaisaAccountNumber}
+          onChange={(event) => setEasypaisaAccountNumber(event.target.value)}
+        />
+        <FormField
+          label="Easypaisa account title"
+          type="text"
+          value={easypaisaAccountName}
+          onChange={(event) => setEasypaisaAccountName(event.target.value)}
         />
       </div>
 

@@ -4,6 +4,7 @@ import { taskSubmissionDocRef } from "@/lib/firestore/task-submissions";
 import { userDocRef } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
 import { newTransactionRef } from "@/lib/firestore/transactions";
+import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
@@ -68,9 +69,14 @@ export async function setTaskStatusAction(
 // transaction, same shape as approveDeposit. Re-reads the submission's own
 // pending state at write time, so two concurrent approvals of the same
 // request can't both succeed.
-export async function approveTaskSubmission(submissionId: string, reviewer: Reviewer): Promise<void> {
+export async function approveTaskSubmission(
+  submissionId: string,
+  reviewer: Reviewer,
+  note?: string | null,
+): Promise<void> {
   const db = requireDb();
   const txnRef = newTransactionRef(db);
+  const notificationRef = newSystemNotificationRef(db);
 
   let capturedAmount = 0;
   let capturedTitle = "";
@@ -115,8 +121,18 @@ export async function approveTaskSubmission(submissionId: string, reviewer: Revi
     transaction.update(taskSubmissionDocRef(db, submissionId), {
       status: "approved",
       reviewedBy: reviewer.adminUid,
+      reviewNote: note?.trim() || null,
       updatedAt: serverTimestamp(),
     });
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: submission.uid,
+        kind: "task_submission",
+        title: "Task reward approved",
+        body: `Your submission for "${submission.taskTitle}" was approved — ${formatCurrency(submission.rewardAmount)} was added to your Current Balance.`,
+      }),
+    );
 
     capturedAmount = submission.rewardAmount;
     capturedTitle = submission.taskTitle;
@@ -128,12 +144,17 @@ export async function approveTaskSubmission(submissionId: string, reviewer: Revi
     action: "taskSubmission.approved",
     targetType: "taskSubmission",
     targetId: submissionId,
-    details: `Approved a ${formatCurrency(capturedAmount)} reward for task "${capturedTitle}"`,
+    details: `Approved a ${formatCurrency(capturedAmount)} reward for task "${capturedTitle}"` + (note?.trim() ? ` — note: ${note.trim()}` : ""),
   });
 }
 
-export async function rejectTaskSubmission(submissionId: string, reviewer: Reviewer): Promise<void> {
+export async function rejectTaskSubmission(
+  submissionId: string,
+  reviewer: Reviewer,
+  note?: string | null,
+): Promise<void> {
   const db = requireDb();
+  const notificationRef = newSystemNotificationRef(db);
 
   await runTransaction(db, async (transaction) => {
     const submissionSnap = await transaction.get(taskSubmissionDocRef(db, submissionId));
@@ -148,8 +169,21 @@ export async function rejectTaskSubmission(submissionId: string, reviewer: Revie
     transaction.update(taskSubmissionDocRef(db, submissionId), {
       status: "rejected",
       reviewedBy: reviewer.adminUid,
+      reviewNote: note?.trim() || null,
       updatedAt: serverTimestamp(),
     });
+
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: submission.uid,
+        kind: "task_submission",
+        title: "Task submission rejected",
+        body: note?.trim()
+          ? `Your submission for "${submission.taskTitle}" was rejected: ${note.trim()}`
+          : `Your submission for "${submission.taskTitle}" was rejected. Please contact support for details.`,
+      }),
+    );
   });
 
   await logActivity(db, {
@@ -158,6 +192,6 @@ export async function rejectTaskSubmission(submissionId: string, reviewer: Revie
     action: "taskSubmission.rejected",
     targetType: "taskSubmission",
     targetId: submissionId,
-    details: "Rejected task submission",
+    details: "Rejected task submission" + (note?.trim() ? ` — note: ${note.trim()}` : ""),
   });
 }

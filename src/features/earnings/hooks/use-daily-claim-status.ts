@@ -3,9 +3,8 @@
 import { useEffect, useState } from "react";
 import { usePackageLimits } from "@/features/wallet/hooks/use-package-limits";
 import { useGlobalSettings } from "@/features/earnings/hooks/use-global-settings";
+import { startOfNextUtcDay } from "@/lib/date-utils";
 import type { UserDoc } from "@/lib/firestore/users";
-
-const CLAIM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 type UseDailyClaimStatusResult = {
   canClaim: boolean;
@@ -16,9 +15,10 @@ type UseDailyClaimStatusResult = {
 };
 
 // The countdown is a real, live-ticking computation against the caller's
-// actual lastDailyClaimAt (from Firestore) plus a fixed 24h cooldown — not
-// a fabricated timer. It reflects exactly the same window
-// firestore.rules enforces server-side (see canClaimDaily).
+// actual lastDailyClaimAt (from Firestore) and the next UTC midnight after
+// it — not a fabricated timer, and not a fixed 24h window. It reflects
+// exactly the same UTC calendar-day gate firestore.rules enforces
+// server-side (see canClaimDaily/isNewUtcDay).
 export function useDailyClaimStatus(profile: UserDoc | null): UseDailyClaimStatusResult {
   const { packageInfo, loading: packageLoading } = usePackageLimits(profile?.package ?? null);
   const { settings, loading: settingsLoading } = useGlobalSettings();
@@ -30,7 +30,7 @@ export function useDailyClaimStatus(profile: UserDoc | null): UseDailyClaimStatu
   }, []);
 
   const lastClaimMs = profile?.lastDailyClaimAt ? profile.lastDailyClaimAt.toMillis() : null;
-  const nextClaimAtMs = lastClaimMs != null ? lastClaimMs + CLAIM_COOLDOWN_MS : null;
+  const nextClaimAtMs = lastClaimMs != null ? startOfNextUtcDay(lastClaimMs) : null;
   const cooldownActive = nextClaimAtMs != null && now < nextClaimAtMs;
   const remainingMs = cooldownActive ? nextClaimAtMs! - now : 0;
 

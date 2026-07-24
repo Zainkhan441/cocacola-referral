@@ -39,6 +39,9 @@ export type TaskSubmissionDoc = {
   proofScreenshotUrl: string | null;
   status: TaskSubmissionStatus;
   reviewedBy: string | null;
+  // Optional admin-entered context for the review decision. Null until an
+  // admin reviews the submission.
+  reviewNote: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 };

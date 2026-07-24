@@ -137,6 +137,7 @@ export async function submitTaskCompletion(input: SubmitTaskCompletionInput): Pr
       proofScreenshotUrl: input.proofScreenshotUrl,
       status: "pending",
       reviewedBy: null,
+      reviewNote: null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });

@@ -17,6 +17,7 @@ import {
 } from "@/lib/firestore/referral-settings";
 import { teamMemberDocRef, buildTeamMemberData, type TeamMemberDoc } from "@/lib/firestore/team-members";
 import { newPackagePurchaseRef } from "@/lib/firestore/package-purchases";
+import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
@@ -63,10 +64,15 @@ type ChainStep = {
 // to 0 is not written. Each reward's Firestore doc id is deterministic
 // (`${depositId}_L${level}`), so a retried transaction attempt can never
 // double-pay the same level for the same purchase.
-export async function approveDeposit(depositId: string, reviewer: Reviewer): Promise<void> {
+export async function approveDeposit(
+  depositId: string,
+  reviewer: Reviewer,
+  note?: string | null,
+): Promise<void> {
   const db = requireDb();
   const txnRef = newTransactionRef(db);
   const purchaseHistoryRef = newPackagePurchaseRef(db);
+  const notificationRef = newSystemNotificationRef(db);
 
   let capturedAmount = 0;
   let capturedPackageName: string | null = null;
@@ -145,10 +151,11 @@ export async function approveDeposit(depositId: string, reviewer: Reviewer): Pro
         packageActivatedAt: activatedAt,
         packageExpiresAt: expiresAt,
         pendingPackagePurchaseId: null,
-        // "Always fresh" activation resets the daily-earning cooldown too —
-        // the first automatic Coca-Cola Earning credit becomes eligible
-        // exactly 24h after THIS activation, never carried over from a
-        // previous package.
+        // "Always fresh" activation resets the daily-earning gate too — the
+        // first automatic Coca-Cola Earning credit becomes eligible at the
+        // start of the next UTC calendar day after THIS activation (see
+        // firestore.rules canClaimDaily/isNewUtcDay), never carried over
+        // from a previous package.
         lastDailyClaimAt: activatedAt,
         updatedAt: serverTimestamp(),
       });
@@ -180,6 +187,7 @@ export async function approveDeposit(depositId: string, reviewer: Reviewer): Pro
     transaction.update(depositDocRef(db, depositId), {
       status: "approved",
       reviewedBy: reviewer.adminUid,
+      reviewNote: note?.trim() || null,
       updatedAt: serverTimestamp(),
     });
 
@@ -193,6 +201,18 @@ export async function approveDeposit(depositId: string, reviewer: Reviewer): Pro
         : "Deposit via Easypaisa",
       createdAt: serverTimestamp(),
     });
+
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: deposit.uid,
+        kind: "deposit",
+        title: deposit.packageId ? "Package activated" : "Deposit approved",
+        body: deposit.packageId
+          ? `Your ${formatCurrency(deposit.amount)} payment was approved and "${packageName}" is now active. Daily Coca-Cola earnings begin tomorrow.`
+          : `Your ${formatCurrency(deposit.amount)} deposit was approved and added to your Deposit Wallet.`,
+      }),
+    );
 
     let referralTotal = 0;
     let referralLevelsPaid = 0;
@@ -301,18 +321,24 @@ export async function approveDeposit(depositId: string, reviewer: Reviewer): Pro
     action: "deposit.approved",
     targetType: "deposit",
     targetId: depositId,
-    details: capturedPackageName
-      ? `Approved a ${formatCurrency(capturedAmount)} deposit and activated package "${capturedPackageName}"${
-          capturedReferralLevelsPaid > 0
-            ? ` (referral bonuses paid across ${capturedReferralLevelsPaid} level(s): ${formatCurrency(capturedReferralTotal)})`
-            : ""
-        }`
-      : `Approved a ${formatCurrency(capturedAmount)} deposit`,
+    details:
+      (capturedPackageName
+        ? `Approved a ${formatCurrency(capturedAmount)} deposit and activated package "${capturedPackageName}"${
+            capturedReferralLevelsPaid > 0
+              ? ` (referral bonuses paid across ${capturedReferralLevelsPaid} level(s): ${formatCurrency(capturedReferralTotal)})`
+              : ""
+          }`
+        : `Approved a ${formatCurrency(capturedAmount)} deposit`) + (note?.trim() ? ` — note: ${note.trim()}` : ""),
   });
 }
 
-export async function rejectDeposit(depositId: string, reviewer: Reviewer): Promise<void> {
+export async function rejectDeposit(
+  depositId: string,
+  reviewer: Reviewer,
+  note?: string | null,
+): Promise<void> {
   const db = requireDb();
+  const notificationRef = newSystemNotificationRef(db);
 
   await runTransaction(db, async (transaction) => {
     const depositSnap = await transaction.get(depositDocRef(db, depositId));
@@ -327,6 +353,7 @@ export async function rejectDeposit(depositId: string, reviewer: Reviewer): Prom
     transaction.update(depositDocRef(db, depositId), {
       status: "rejected",
       reviewedBy: reviewer.adminUid,
+      reviewNote: note?.trim() || null,
       updatedAt: serverTimestamp(),
     });
 
@@ -338,6 +365,18 @@ export async function rejectDeposit(depositId: string, reviewer: Reviewer): Prom
         updatedAt: serverTimestamp(),
       });
     }
+
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: deposit.uid,
+        kind: "deposit",
+        title: deposit.packageId ? "Package purchase rejected" : "Deposit rejected",
+        body: note?.trim()
+          ? `Your ${formatCurrency(deposit.amount)} ${deposit.packageId ? "package purchase" : "deposit"} was rejected: ${note.trim()}`
+          : `Your ${formatCurrency(deposit.amount)} ${deposit.packageId ? "package purchase" : "deposit"} was rejected. Please contact support for details.`,
+      }),
+    );
   });
 
   await logActivity(db, {
@@ -346,6 +385,6 @@ export async function rejectDeposit(depositId: string, reviewer: Reviewer): Prom
     action: "deposit.rejected",
     targetType: "deposit",
     targetId: depositId,
-    details: "Rejected deposit request",
+    details: "Rejected deposit request" + (note?.trim() ? ` — note: ${note.trim()}` : ""),
   });
 }

@@ -9,6 +9,7 @@ import { useAuth } from "@/features/auth/context/auth-provider";
 import { submitDepositRequest } from "@/features/wallet/lib/actions";
 import { validateReferenceId, validateScreenshotUrl } from "@/features/wallet/lib/validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
+import { EasypaisaPaymentDetails } from "@/features/wallet/components/easypaisa-payment-details";
 import { formatCurrency } from "@/lib/format";
 import type { PackageDoc } from "@/lib/firestore/packages";
 
@@ -96,6 +97,8 @@ export function PackagePurchaseForm({ pkg, onDone, onCancel }: PackagePurchaseFo
       </div>
 
       {formError && <Alert variant="error">{formError}</Alert>}
+
+      <EasypaisaPaymentDetails />
 
       <FormField
         label="Transaction / reference ID"

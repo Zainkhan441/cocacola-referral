@@ -28,12 +28,12 @@ export function NotificationBell() {
 
   async function handleMarkAllRead() {
     if (!user) return;
-    await markAllNotificationsRead(user.uid, notifications).catch(() => {});
+    await markAllNotificationsRead(notifications).catch(() => {});
   }
 
-  async function handleOpenNotification(announcementId: string, read: boolean) {
+  async function handleOpenNotification(notificationId: string, read: boolean) {
     if (!user || read) return;
-    await markOneNotificationRead(user.uid, announcementId).catch(() => {});
+    await markOneNotificationRead(notificationId).catch(() => {});
   }
 
   return (
@@ -79,7 +79,7 @@ export function NotificationBell() {
                 <li key={notification.id}>
                   <button
                     type="button"
-                    onClick={() => handleOpenNotification(notification.announcementId, notification.read)}
+                    onClick={() => handleOpenNotification(notification.id, notification.read)}
                     className={`flex w-full flex-col gap-0.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-white/5 ${
                       notification.read ? "" : "bg-brand/5"
                     }`}

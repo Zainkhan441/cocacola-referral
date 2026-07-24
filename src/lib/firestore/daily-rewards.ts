@@ -27,8 +27,8 @@ export type DailyRewardDoc = {
   packageId: string;
   amount: number;
   // "YYYY-MM-DD" (UTC), informational/display only — the actual one-claim
-  // gate is the rolling 24h cooldown on users/{uid}.lastDailyClaimAt, not
-  // this string (Firestore rules can't compute calendar dates).
+  // gate is the UTC calendar-day comparison on users/{uid}.lastDailyClaimAt
+  // (see firestore.rules canClaimDaily/isNewUtcDay), not this string.
   rewardDate: string;
   status: DailyRewardStatus;
   createdAt: Timestamp;

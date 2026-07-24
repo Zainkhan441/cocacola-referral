@@ -24,6 +24,7 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
   const { user } = useAuth();
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [note, setNote] = useState("");
 
   function reviewer() {
     if (!user) throw new Error("Not signed in.");
@@ -35,7 +36,7 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
     setBusy(true);
     setRowError(null);
     try {
-      await approveDeposit(deposit.id, reviewer());
+      await approveDeposit(deposit.id, reviewer(), note);
       onReviewed();
     } catch (error) {
       setRowError(error instanceof Error ? error.message : "Couldn’t approve this deposit.");
@@ -49,7 +50,7 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
     setBusy(true);
     setRowError(null);
     try {
-      await rejectDeposit(deposit.id, reviewer());
+      await rejectDeposit(deposit.id, reviewer(), note);
       onReviewed();
     } catch (error) {
       setRowError(error instanceof Error ? error.message : "Couldn’t reject this deposit.");
@@ -85,22 +86,42 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
           href={deposit.screenshotUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs font-medium text-brand-light underline underline-offset-2"
+          className="block overflow-hidden rounded-xl border border-white/10"
         >
-          View proof screenshot
+          {/* eslint-disable-next-line @next/next/no-img-element -- admin-facing proof preview from an arbitrary user-submitted URL, not a Next-optimizable local/remote asset */}
+          <img
+            src={deposit.screenshotUrl}
+            alt="Payment proof screenshot"
+            className="max-h-64 w-full object-contain bg-black"
+          />
         </a>
+      )}
+
+      {deposit.reviewNote && (
+        <p className="text-xs text-white/50">
+          <span className="font-medium text-white/70">Review note:</span> {deposit.reviewNote}
+        </p>
       )}
 
       {rowError && <Alert variant="error">{rowError}</Alert>}
 
       {deposit.status === "pending" && (
-        <div className="flex gap-2">
-          <Button size="sm" disabled={busy} onClick={handleApprove}>
-            Approve
-          </Button>
-          <Button variant="outline" size="sm" disabled={busy} onClick={handleReject}>
-            Reject
-          </Button>
+        <div className="flex flex-col gap-2">
+          <textarea
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Note (optional) — shown to the user, e.g. a rejection reason"
+            rows={2}
+            className="w-full rounded-xl border border-white/15 bg-surface-3 px-3 py-2 text-xs text-white placeholder:text-white/30 transition-colors focus:border-brand focus:outline-none"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy} onClick={handleApprove}>
+              Approve
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={handleReject}>
+              Reject
+            </Button>
+          </div>
         </div>
       )}
     </div>
