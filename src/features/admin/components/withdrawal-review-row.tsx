@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { approveWithdrawal, rejectWithdrawal } from "@/features/admin/lib/withdrawal-actions";
+import { WITHDRAWAL_SOURCE_WALLET_LABELS as SOURCE_WALLET_LABELS } from "@/lib/wallet-labels";
 import type { WithdrawalStatus } from "@/lib/firestore/withdrawals";
 import type { WithdrawalWithId } from "@/features/admin/hooks/use-admin-withdrawals";
 
@@ -19,11 +20,6 @@ const STATUS_STYLES: Record<WithdrawalStatus, string> = {
 type WithdrawalReviewRowProps = {
   withdrawal: WithdrawalWithId;
   onReviewed: () => void;
-};
-
-const SOURCE_WALLET_LABELS: Record<WithdrawalWithId["sourceWallet"], string> = {
-  current_balance: "Current Balance",
-  coca_cola_earning: "Coca-Cola Earning",
 };
 
 export function WithdrawalReviewRow({ withdrawal, onReviewed }: WithdrawalReviewRowProps) {

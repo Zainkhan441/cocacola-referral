@@ -196,6 +196,26 @@ service cloud.firestore {
              .hasOnly(["pendingPackagePurchaseId", "updatedAt"]);
     }
 
+    // Same one-pending-request-per-wallet pattern as ownerCanMarkPendingPurchase
+    // above, but for withdrawals — exactly one of the two marker fields may
+    // be set per write (never both at once, since a single withdrawal
+    // request only ever targets one wallet), and only while that specific
+    // field is still null.
+    function ownerCanMarkPendingWithdrawal() {
+      return (
+        (resource.data.pendingWithdrawalCurrentBalance == null
+          && request.resource.data.pendingWithdrawalCurrentBalance is string
+          && request.resource.data.pendingWithdrawalCurrentBalance.size() > 0
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["pendingWithdrawalCurrentBalance", "updatedAt"]))
+        || (resource.data.pendingWithdrawalCocaColaEarning == null
+          && request.resource.data.pendingWithdrawalCocaColaEarning is string
+          && request.resource.data.pendingWithdrawalCocaColaEarning.size() > 0
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["pendingWithdrawalCocaColaEarning", "updatedAt"]))
+      );
+    }
+
     // Mirrors ownerCanClaimDaily() for the wallets/{uid} document — reads
     // the user's package/cooldown via userData(uid) since wallets/{uid}
     // itself doesn't store those fields. Both writes happen in the same
@@ -229,7 +249,8 @@ service cloud.firestore {
         "walletBalance", "currentBalance", "cocaColaEarning", "staffEarning",
         "totalEarnings", "pendingEarnings", "todayEarnings",
         "accountStatus", "package", "packagePurchasedAt", "packageActivatedAt",
-        "packageExpiresAt", "pendingPackagePurchaseId", "updatedAt"
+        "packageExpiresAt", "pendingPackagePurchaseId",
+        "pendingWithdrawalCurrentBalance", "pendingWithdrawalCocaColaEarning", "updatedAt"
       ])
         && request.resource.data.walletBalance is number && request.resource.data.walletBalance >= 0
         && request.resource.data.currentBalance is number && request.resource.data.currentBalance >= 0
@@ -243,7 +264,9 @@ service cloud.firestore {
         && (request.resource.data.packagePurchasedAt == null || request.resource.data.packagePurchasedAt is timestamp)
         && (request.resource.data.packageActivatedAt == null || request.resource.data.packageActivatedAt is timestamp)
         && (request.resource.data.packageExpiresAt == null || request.resource.data.packageExpiresAt is timestamp)
-        && (request.resource.data.pendingPackagePurchaseId == null || request.resource.data.pendingPackagePurchaseId is string);
+        && (request.resource.data.pendingPackagePurchaseId == null || request.resource.data.pendingPackagePurchaseId is string)
+        && (request.resource.data.pendingWithdrawalCurrentBalance == null || request.resource.data.pendingWithdrawalCurrentBalance is string)
+        && (request.resource.data.pendingWithdrawalCocaColaEarning == null || request.resource.data.pendingWithdrawalCocaColaEarning is string);
     }
 
     match /users/{uid} {
@@ -264,6 +287,8 @@ service cloud.firestore {
         && request.resource.data.packageActivatedAt == null
         && request.resource.data.packageExpiresAt == null
         && request.resource.data.pendingPackagePurchaseId == null
+        && request.resource.data.pendingWithdrawalCurrentBalance == null
+        && request.resource.data.pendingWithdrawalCocaColaEarning == null
         && request.resource.data.lastDailyClaimAt == null
         && request.resource.data.notificationsEnabled == true
         && request.resource.data.themePreference == "dark"
@@ -273,7 +298,8 @@ service cloud.firestore {
       allow update: if (isOwner(uid) && ownerCanUpdateUser())
         || (isAdmin() && adminCanUpdateUser())
         || (isOwner(uid) && ownerCanClaimDaily())
-        || (isOwner(uid) && ownerCanMarkPendingPurchase());
+        || (isOwner(uid) && ownerCanMarkPendingPurchase())
+        || (isOwner(uid) && ownerCanMarkPendingWithdrawal());
       allow delete: if false;
     }
 
@@ -335,15 +361,21 @@ service cloud.firestore {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if (isAdmin()
           && request.resource.data.uid is string
-          && request.resource.data.type in ["deposit", "withdrawal", "referral_reward", "daily_reward", "package_purchase", "task_reward", "bonus_reward"]
+          && request.resource.data.userName is string
+          && request.resource.data.type in ["deposit", "withdrawal", "referral_reward", "daily_reward", "package_purchase", "task_reward", "bonus_reward", "admin_adjustment"]
           && request.resource.data.amount is number && request.resource.data.amount > 0
           && request.resource.data.status in ["pending", "completed", "failed"]
-          && request.resource.data.description is string)
+          && request.resource.data.description is string
+          && (request.resource.data.wallet == null || request.resource.data.wallet in ["walletBalance", "currentBalance", "cocaColaEarning", "staffEarning"])
+          && (request.resource.data.referenceId == null || request.resource.data.referenceId is string))
         || (isSignedIn()
           && request.resource.data.uid == request.auth.uid
+          && request.resource.data.userName is string
           && request.resource.data.type == "daily_reward"
           && request.resource.data.status == "completed"
           && request.resource.data.description is string
+          && request.resource.data.wallet == "cocaColaEarning"
+          && request.resource.data.referenceId is string
           && canClaimDaily(userData(request.auth.uid))
           && request.resource.data.amount == dailyEarningFor(userData(request.auth.uid).package));
       allow update, delete: if false;
@@ -425,10 +457,12 @@ service cloud.firestore {
         && (
              (request.resource.data.sourceWallet == "current_balance"
                && request.resource.data.amount >= currentBalanceMinWithdraw()
-               && request.resource.data.amount <= userData(request.auth.uid).currentBalance)
+               && request.resource.data.amount <= userData(request.auth.uid).currentBalance
+               && userData(request.auth.uid).pendingWithdrawalCurrentBalance == null)
              || (request.resource.data.sourceWallet == "coca_cola_earning"
                && request.resource.data.amount >= 500
-               && request.resource.data.amount <= userData(request.auth.uid).cocaColaEarning)
+               && request.resource.data.amount <= userData(request.auth.uid).cocaColaEarning
+               && userData(request.auth.uid).pendingWithdrawalCocaColaEarning == null)
            );
       allow update: if isAdmin() && adminCanReviewRequest();
       allow delete: if false;
@@ -811,7 +845,7 @@ service cloud.firestore {
                && id == request.resource.data.announcementId + "_" + request.resource.data.uid
                && request.resource.data.announcementId is string
                && exists(/databases/$(database)/documents/announcements/$(request.resource.data.announcementId)))
-             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission"]
+             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission", "admin_adjustment"]
                && request.resource.data.announcementId == null)
            );
       allow update: if isSignedIn()

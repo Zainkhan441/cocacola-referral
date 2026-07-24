@@ -14,6 +14,7 @@ const TYPE_LABELS: Record<TransactionType, string> = {
   package_purchase: "Package purchase",
   task_reward: "Task reward",
   bonus_reward: "Bonus reward",
+  admin_adjustment: "Balance adjustment",
 };
 
 const OUTFLOW_TYPES: ReadonlySet<TransactionType> = new Set([

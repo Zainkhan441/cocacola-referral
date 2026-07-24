@@ -33,7 +33,12 @@ export const NOTIFICATION_FANOUT_CHUNK_SIZE = 400;
 // notifications are never gated by notificationsEnabled — they describe the
 // user's own money/status, not marketing content, so a user can't silence
 // finding out their withdrawal was approved.
-export type NotificationKind = "announcement" | "deposit" | "withdrawal" | "task_submission";
+export type NotificationKind =
+  | "announcement"
+  | "deposit"
+  | "withdrawal"
+  | "task_submission"
+  | "admin_adjustment";
 
 export type UserNotificationDoc = {
   uid: string;

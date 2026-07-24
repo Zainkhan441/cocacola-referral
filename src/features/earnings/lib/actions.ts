@@ -82,10 +82,13 @@ export async function runAutomaticDailyEarning(uid: string): Promise<number | nu
 
     transaction.set(txnRef, {
       uid,
+      userName: user.fullName,
       type: "daily_reward",
       amount: dailyEarning,
       status: "completed",
       description: `Daily Coca-Cola earning from ${pkg.name}`,
+      wallet: "cocaColaEarning",
+      referenceId: dailyRewardRef.id,
       createdAt: now,
     });
 

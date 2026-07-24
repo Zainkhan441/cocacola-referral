@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAggregateFromServer, getCountFromServer, query, sum, where } from "firebase/firestore";
+import { getAggregateFromServer, getCountFromServer, query, sum, where, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { usersCollection } from "@/lib/firestore/users";
 import { depositsCollection } from "@/lib/firestore/deposits";
 import { withdrawalsCollection } from "@/lib/firestore/withdrawals";
 import { referralRewardsCollection } from "@/lib/firestore/referral-rewards";
-import { transactionsByTypeQuery } from "@/lib/firestore/transactions";
+import { transactionsByTypeQuery, dailyRewardTransactionsSinceQuery } from "@/lib/firestore/transactions";
 import { useResetOnKeyChange } from "@/features/user/hooks/use-reset-on-key-change";
+import { startOfUtcDay } from "@/lib/date-utils";
 
 export type AdminStats = {
   totalUsers: number;
   activeUsers: number;
+  // Count of users with a currently active, unexpired package.
+  activePackages: number;
   // Sum of approved deposit amounts (money that has flowed into wallets).
   totalDeposits: number;
   pendingDeposits: number;
@@ -26,6 +29,15 @@ export type AdminStats = {
   // Sum across every user's referralRewards — real Rs 0 until the referral
   // crediting engine (a later milestone) exists.
   totalReferralRewards: number;
+  // Sum of daily_reward transactions created since the start of today (UTC),
+  // matching the same calendar-day boundary the earning engine itself uses.
+  todayEarningsPaid: number;
+  // Total money currently sitting in each wallet, platform-wide — a live
+  // snapshot of platform liability, not a lifetime/historical figure.
+  platformDepositWallet: number;
+  platformCurrentBalance: number;
+  platformCocaColaEarning: number;
+  platformStaffEarning: number;
 };
 
 type UseAdminStatsResult = {
@@ -56,9 +68,12 @@ export function useAdminStats(): UseAdminStatsResult {
     let cancelled = false;
 
     async function load() {
+      const todayStartMs = startOfUtcDay(Date.now());
+
       const [
         totalUsersSnap,
         activeUsersSnap,
+        activePackagesSnap,
         approvedDepositsAggSnap,
         pendingDepositsSnap,
         approvedDepositsSnap,
@@ -66,9 +81,17 @@ export function useAdminStats(): UseAdminStatsResult {
         pendingWithdrawalsSnap,
         revenueAggSnap,
         referralRewardsAggSnap,
+        todayEarningsAggSnap,
+        platformDepositWalletAggSnap,
+        platformCurrentBalanceAggSnap,
+        platformCocaColaEarningAggSnap,
+        platformStaffEarningAggSnap,
       ] = await Promise.all([
         getCountFromServer(usersCollection(firestore)),
         getCountFromServer(query(usersCollection(firestore), where("accountStatus", "==", "active"))),
+        getCountFromServer(
+          query(usersCollection(firestore), where("packageExpiresAt", ">", Timestamp.now())),
+        ),
         getAggregateFromServer(
           query(depositsCollection(firestore), where("status", "==", "approved")),
           { total: sum("amount") },
@@ -85,6 +108,13 @@ export function useAdminStats(): UseAdminStatsResult {
           { total: sum("amount") },
         ),
         getAggregateFromServer(referralRewardsCollection(firestore), { total: sum("amount") }),
+        getAggregateFromServer(dailyRewardTransactionsSinceQuery(firestore, todayStartMs), {
+          total: sum("amount"),
+        }),
+        getAggregateFromServer(usersCollection(firestore), { total: sum("walletBalance") }),
+        getAggregateFromServer(usersCollection(firestore), { total: sum("currentBalance") }),
+        getAggregateFromServer(usersCollection(firestore), { total: sum("cocaColaEarning") }),
+        getAggregateFromServer(usersCollection(firestore), { total: sum("staffEarning") }),
       ]);
 
       if (cancelled) return;
@@ -92,6 +122,7 @@ export function useAdminStats(): UseAdminStatsResult {
       setStats({
         totalUsers: totalUsersSnap.data().count,
         activeUsers: activeUsersSnap.data().count,
+        activePackages: activePackagesSnap.data().count,
         // Firestore's sum() aggregate resolves to `null`, not 0, when zero
         // documents match the query (e.g. no approved deposits yet) — a
         // real, reproducible gap between the SDK's declared `number` return
@@ -104,6 +135,11 @@ export function useAdminStats(): UseAdminStatsResult {
         pendingWithdrawals: pendingWithdrawalsSnap.data().count,
         totalRevenue: revenueAggSnap.data().total ?? 0,
         totalReferralRewards: referralRewardsAggSnap.data().total ?? 0,
+        todayEarningsPaid: todayEarningsAggSnap.data().total ?? 0,
+        platformDepositWallet: platformDepositWalletAggSnap.data().total ?? 0,
+        platformCurrentBalance: platformCurrentBalanceAggSnap.data().total ?? 0,
+        platformCocaColaEarning: platformCocaColaEarningAggSnap.data().total ?? 0,
+        platformStaffEarning: platformStaffEarningAggSnap.data().total ?? 0,
       });
       setLoading(false);
     }

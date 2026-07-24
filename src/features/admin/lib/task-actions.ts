@@ -112,10 +112,13 @@ export async function approveTaskSubmission(
     });
     transaction.set(txnRef, {
       uid: submission.uid,
+      userName: submission.userName,
       type: "task_reward",
       amount: submission.rewardAmount,
       status: "completed",
       description: `Task reward: ${submission.taskTitle}`,
+      wallet: "currentBalance",
+      referenceId: submissionId,
       createdAt: serverTimestamp(),
     });
     transaction.update(taskSubmissionDocRef(db, submissionId), {

@@ -83,10 +83,19 @@ export type UserDoc = {
   // of truth Firestore rules use to block a second package-purchase
   // request while one is still awaiting review.
   pendingPackagePurchaseId: string | null;
-  // Rolling 24h claim cooldown — the sole source of truth Firestore rules
-  // use to gate a daily-earning claim, since Firestore rules can't compute
-  // a calendar-date string to key a "one claim per day" check. See
-  // firestore.rules `canClaimDaily` for the enforcement.
+  // Same one-pending-request-per-wallet pattern as pendingPackagePurchaseId
+  // above, but for withdrawals — one marker per independently-withdrawable
+  // wallet, so a user can't submit an unbounded number of simultaneous
+  // pending withdrawal requests against the same wallet. Set atomically with
+  // the withdrawal's own creation, cleared on approve/reject. See
+  // firestore.rules `ownerCanMarkPendingWithdrawal`.
+  pendingWithdrawalCurrentBalance: string | null;
+  pendingWithdrawalCocaColaEarning: string | null;
+  // The UTC-calendar-day gate Firestore rules use for the automatic daily
+  // package earning credit (see firestore.rules `canClaimDaily`/
+  // `isNewUtcDay`) — a new credit is allowed once `request.time` falls on a
+  // later UTC calendar date than this timestamp, not after a fixed 24h
+  // duration.
   lastDailyClaimAt: Timestamp | null;
   // Milestone 13 Settings preferences — all self-editable, none affecting
   // money/role/access. notificationsEnabled is checked by the admin
@@ -147,6 +156,8 @@ export function buildInitialUserData(input: CreateUserDocumentInput) {
     packageActivatedAt: null,
     packageExpiresAt: null,
     pendingPackagePurchaseId: null,
+    pendingWithdrawalCurrentBalance: null,
+    pendingWithdrawalCocaColaEarning: null,
     lastDailyClaimAt: null,
     notificationsEnabled: true,
     themePreference: "dark" as const,

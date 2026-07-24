@@ -15,7 +15,7 @@ export default function AdminDashboardPage() {
 
       {loading && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-          {Array.from({ length: 9 }).map((_, index) => (
+          {Array.from({ length: 11 }).map((_, index) => (
             <StatCardSkeleton key={index} />
           ))}
         </div>
@@ -31,20 +31,41 @@ export default function AdminDashboardPage() {
       )}
 
       {!loading && !error && stats && (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-          <StatCard label="Total users" value={stats.totalUsers.toLocaleString()} />
-          <StatCard label="Active users" value={stats.activeUsers.toLocaleString()} />
-          <StatCard label="Total deposits" value={formatCurrency(stats.totalDeposits)} />
-          <StatCard label="Pending deposits" value={stats.pendingDeposits.toLocaleString()} />
-          <StatCard label="Approved deposits" value={stats.approvedDeposits.toLocaleString()} />
-          <StatCard label="Total withdrawals" value={formatCurrency(stats.totalWithdrawals)} />
-          <StatCard label="Pending withdrawals" value={stats.pendingWithdrawals.toLocaleString()} />
-          <StatCard label="Total revenue" value={formatCurrency(stats.totalRevenue)} />
-          <StatCard
-            label="Total referral rewards"
-            value={formatCurrency(stats.totalReferralRewards)}
-          />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatCard label="Total users" value={stats.totalUsers.toLocaleString()} />
+            <StatCard label="Active users" value={stats.activeUsers.toLocaleString()} />
+            <StatCard label="Active packages" value={stats.activePackages.toLocaleString()} />
+            <StatCard label="Pending deposits" value={stats.pendingDeposits.toLocaleString()} />
+            <StatCard label="Pending withdrawals" value={stats.pendingWithdrawals.toLocaleString()} />
+            <StatCard label="Today's earnings paid" value={formatCurrency(stats.todayEarningsPaid)} />
+            <StatCard label="Total deposits" value={formatCurrency(stats.totalDeposits)} />
+            <StatCard label="Approved deposits" value={stats.approvedDeposits.toLocaleString()} />
+            <StatCard label="Total withdrawals" value={formatCurrency(stats.totalWithdrawals)} />
+            <StatCard label="Total revenue" value={formatCurrency(stats.totalRevenue)} />
+            <StatCard
+              label="Total referral commissions"
+              value={formatCurrency(stats.totalReferralRewards)}
+            />
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-white">Platform balance summary</h2>
+            <p className="mb-3 text-xs text-white/50">
+              Money currently held across every user&apos;s wallet, platform-wide — a live
+              liability snapshot, not a lifetime total.
+            </p>
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <StatCard label="Deposit Wallet" value={formatCurrency(stats.platformDepositWallet)} />
+              <StatCard label="Current Balance" value={formatCurrency(stats.platformCurrentBalance)} />
+              <StatCard
+                label="Coca-Cola Earning"
+                value={formatCurrency(stats.platformCocaColaEarning)}
+              />
+              <StatCard label="Staff Earning" value={formatCurrency(stats.platformStaffEarning)} />
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import { getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
-import { withdrawalDocRef, type WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
+import { withdrawalDocRef, pendingWithdrawalFieldFor } from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
 import { newTransactionRef } from "@/lib/firestore/transactions";
@@ -8,14 +8,10 @@ import { getWithdrawalRules } from "@/lib/firestore/settings";
 import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
+import { WITHDRAWAL_SOURCE_WALLET_LABELS as SOURCE_WALLET_LABELS } from "@/lib/wallet-labels";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 
 const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
-
-const SOURCE_WALLET_LABELS: Record<WithdrawalSourceWallet, string> = {
-  current_balance: "Current Balance",
-  coca_cola_earning: "Coca-Cola Earning",
-};
 
 // Approves a pending withdrawal: deducts the requested source wallet — Current
 // Balance or Coca-Cola Earning, per withdrawal.sourceWallet — from both
@@ -91,9 +87,11 @@ export async function approveWithdrawal(
     }
 
     const newSourceBalance = currentSourceBalance - withdrawal.amount;
+    const pendingField = pendingWithdrawalFieldFor(withdrawal.sourceWallet);
 
     transaction.update(userRef, {
       [sourceField]: newSourceBalance,
+      [pendingField]: null,
       updatedAt: serverTimestamp(),
     });
     transaction.update(walletDocRef(db, withdrawal.uid), {
@@ -108,10 +106,13 @@ export async function approveWithdrawal(
     });
     transaction.set(txnRef, {
       uid: withdrawal.uid,
+      userName: withdrawal.userName,
       type: "withdrawal",
       amount: withdrawal.amount,
       status: "completed",
       description: `Withdrawal to ${withdrawal.accountNumber}`,
+      wallet: sourceField,
+      referenceId: withdrawalId,
       createdAt: serverTimestamp(),
     });
     transaction.set(
@@ -159,6 +160,13 @@ export async function rejectWithdrawal(
       status: "rejected",
       reviewedBy: reviewer.adminUid,
       reviewNote: note?.trim() || null,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Free up this wallet's pending-request slot so the user can submit a
+    // new withdrawal — mirrors rejectDeposit clearing pendingPackagePurchaseId.
+    transaction.update(userDocRef(db, withdrawal.uid), {
+      [pendingWithdrawalFieldFor(withdrawal.sourceWallet)]: null,
       updatedAt: serverTimestamp(),
     });
 

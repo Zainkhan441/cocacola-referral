@@ -21,3 +21,12 @@ export function startOfNextUtcDay(ms: number): number {
   const d = new Date(ms);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
 }
+
+// The instant (ms since epoch) of the start of the given timestamp's own
+// UTC calendar day — used to query "today so far" figures (e.g. the admin
+// dashboard's Today's Earnings Paid) on the same UTC boundary the daily
+// earning engine itself uses.
+export function startOfUtcDay(ms: number): number {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}

@@ -3,6 +3,7 @@ export const ADMIN_NAV_LINKS = [
   { label: "Packages", href: "/admin/packages" },
   { label: "Deposits", href: "/admin/deposits" },
   { label: "Withdrawals", href: "/admin/withdrawals" },
+  { label: "Financial History", href: "/admin/transactions" },
   { label: "Users", href: "/admin/users" },
   { label: "Earnings", href: "/admin/earnings" },
   { label: "Referral Commission Settings", href: "/admin/referral-settings" },

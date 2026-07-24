@@ -193,12 +193,18 @@ export async function approveDeposit(
 
     transaction.set(txnRef, {
       uid: deposit.uid,
+      userName: deposit.userName,
       type: deposit.packageId ? "package_purchase" : "deposit",
       amount: deposit.amount,
       status: "completed",
       description: deposit.packageId
         ? `Package purchase: ${packageName}`
         : "Deposit via Easypaisa",
+      // A package-purchase deposit activates a package rather than crediting
+      // any single wallet balance — walletBalance is the Deposit Wallet a
+      // plain top-up lands in.
+      wallet: deposit.packageId ? null : "walletBalance",
+      referenceId: depositId,
       createdAt: serverTimestamp(),
     });
 
@@ -281,7 +287,8 @@ export async function approveDeposit(
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });
-      transaction.set(referralRewardDocRef(db, depositId, step.level), {
+      const referralRewardRef = referralRewardDocRef(db, depositId, step.level);
+      transaction.set(referralRewardRef, {
         earnerUid: step.ancestorUid,
         earnerName: ancestorData.fullName,
         sourceUid: deposit.uid,
@@ -298,10 +305,13 @@ export async function approveDeposit(
       });
       transaction.set(newTransactionRef(db), {
         uid: step.ancestorUid,
+        userName: ancestorData.fullName,
         type: "referral_reward",
         amount,
         status: "completed",
         description: `Level ${step.level} referral bonus from ${deposit.userName}'s package purchase`,
+        wallet: "staffEarning",
+        referenceId: referralRewardRef.id,
         createdAt: serverTimestamp(),
       });
 

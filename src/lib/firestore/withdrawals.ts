@@ -1,5 +1,4 @@
 import {
-  addDoc,
   doc,
   limit,
   orderBy,
@@ -51,6 +50,30 @@ export function withdrawalsCollection(db: Firestore) {
 
 export function withdrawalDocRef(db: Firestore, withdrawalId: string) {
   return doc(withdrawalsCollection(db), withdrawalId);
+}
+
+// A fresh auto-id ref, generated ahead of time so submitWithdrawalRequest
+// can atomically mark it as this user's pending request for the same
+// wallet in the same transaction (see users/{uid}.pendingWithdrawal*).
+export function newWithdrawalRef(db: Firestore) {
+  return doc(withdrawalsCollection(db));
+}
+
+// The users/{uid} marker field that must be null before a new request
+// against this wallet can be created, and is cleared again on
+// approve/reject — mirrors pendingPackagePurchaseId's role for deposits,
+// one-per-wallet instead of one-total, so a user can't pile up an unbounded
+// number of simultaneous pending withdrawal requests against the same
+// wallet (each individually valid against their balance at request time,
+// but collectively exceeding it many times over — the admin approval flow
+// is still money-safe either way since it re-checks the live balance, but
+// unbounded pending requests are an operational/spam concern worth closing).
+export function pendingWithdrawalFieldFor(
+  sourceWallet: WithdrawalSourceWallet,
+): "pendingWithdrawalCurrentBalance" | "pendingWithdrawalCocaColaEarning" {
+  return sourceWallet === "current_balance"
+    ? "pendingWithdrawalCurrentBalance"
+    : "pendingWithdrawalCocaColaEarning";
 }
 
 // Requires a composite index (uid asc, createdAt desc) — see firestore.indexes.json.
@@ -106,11 +129,11 @@ type CreateWithdrawalRequestInput = {
   accountNumber: string;
 };
 
-export async function createWithdrawalRequest(
-  db: Firestore,
-  input: CreateWithdrawalRequestInput,
-): Promise<void> {
-  await addDoc(withdrawalsCollection(db), {
+// Exported so submitWithdrawalRequest (features/wallet/lib/actions.ts) can
+// write this alongside the users/{uid} pending-marker update in the same
+// atomic transaction, the same shape as buildDepositData/buildTeamMemberData.
+export function buildWithdrawalData(input: CreateWithdrawalRequestInput) {
+  return {
     uid: input.uid,
     userName: input.userName,
     amount: input.amount,
@@ -118,10 +141,10 @@ export async function createWithdrawalRequest(
     method: WITHDRAWAL_METHOD,
     accountName: input.accountName,
     accountNumber: input.accountNumber,
-    status: "pending",
+    status: "pending" as const,
     reviewedBy: null,
     reviewNote: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  };
 }

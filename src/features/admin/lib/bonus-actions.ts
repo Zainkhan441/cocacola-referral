@@ -181,10 +181,13 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
     });
     transaction.set(txnRef, {
       uid: freshClaim.uid,
+      userName: freshClaim.userName,
       type: "bonus_reward",
       amount: freshClaim.bonusAmount,
       status: "completed",
       description: `Bonus: ${freshClaim.tierName}`,
+      wallet: "cocaColaEarning",
+      referenceId: claimId,
       createdAt: serverTimestamp(),
     });
     transaction.update(bonusClaimDocRef(db, claimId), {

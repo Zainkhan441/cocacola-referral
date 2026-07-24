@@ -1,7 +1,12 @@
 import { runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { createDepositRequest, buildDepositData, newDepositRef } from "@/lib/firestore/deposits";
-import { createWithdrawalRequest, type WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
+import {
+  buildWithdrawalData,
+  newWithdrawalRef,
+  pendingWithdrawalFieldFor,
+  type WithdrawalSourceWallet,
+} from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
 
 function requireDb() {
@@ -62,7 +67,31 @@ type SubmitWithdrawalInput = {
   accountNumber: string;
 };
 
+// A withdrawal request must atomically mark the requester's own profile as
+// having a pending request against THIS specific wallet — the sole
+// mechanism (both here and in firestore.rules' ownerCanMarkPendingWithdrawal)
+// preventing a user from piling up multiple simultaneous pending requests
+// against the same wallet. Current Balance and Coca-Cola Earning are gated
+// independently, so one pending request per wallet can coexist.
 export async function submitWithdrawalRequest(input: SubmitWithdrawalInput) {
   const firestore = requireDb();
-  await createWithdrawalRequest(firestore, input);
+  const withdrawalRef = newWithdrawalRef(firestore);
+  const pendingField = pendingWithdrawalFieldFor(input.sourceWallet);
+
+  await runTransaction(firestore, async (transaction) => {
+    const userRef = userDocRef(firestore, input.uid);
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists()) {
+      throw new Error("Your profile could not be found.");
+    }
+    if (userSnap.data()[pendingField]) {
+      throw new Error("You already have a withdrawal request awaiting review for this wallet.");
+    }
+
+    transaction.set(withdrawalRef, buildWithdrawalData(input));
+    transaction.update(userRef, {
+      [pendingField]: withdrawalRef.id,
+      updatedAt: serverTimestamp(),
+    });
+  });
 }
