@@ -92,13 +92,18 @@ export function useAdminStats(): UseAdminStatsResult {
       setStats({
         totalUsers: totalUsersSnap.data().count,
         activeUsers: activeUsersSnap.data().count,
-        totalDeposits: approvedDepositsAggSnap.data().total,
+        // Firestore's sum() aggregate resolves to `null`, not 0, when zero
+        // documents match the query (e.g. no approved deposits yet) — a
+        // real, reproducible gap between the SDK's declared `number` return
+        // type and its actual runtime value. Normalized to 0 here, at the
+        // data layer, rather than trusting the aggregate's type.
+        totalDeposits: approvedDepositsAggSnap.data().total ?? 0,
         pendingDeposits: pendingDepositsSnap.data().count,
         approvedDeposits: approvedDepositsSnap.data().count,
-        totalWithdrawals: approvedWithdrawalsAggSnap.data().total,
+        totalWithdrawals: approvedWithdrawalsAggSnap.data().total ?? 0,
         pendingWithdrawals: pendingWithdrawalsSnap.data().count,
-        totalRevenue: revenueAggSnap.data().total,
-        totalReferralRewards: referralRewardsAggSnap.data().total,
+        totalRevenue: revenueAggSnap.data().total ?? 0,
+        totalReferralRewards: referralRewardsAggSnap.data().total ?? 0,
       });
       setLoading(false);
     }

@@ -85,7 +85,10 @@ export async function getReferralEarningsTotal(
   const snapshot = await getAggregateFromServer(rewardsQuery, {
     total: sum("amount"),
   });
-  return snapshot.data().total;
+  // Firestore's sum() resolves to `null`, not 0, when zero documents match
+  // (e.g. a user with no referral rewards yet) — normalized to a real 0
+  // here at the data layer, matching this function's declared return type.
+  return snapshot.data().total ?? 0;
 }
 
 // --- Admin reward logs ---
