@@ -36,9 +36,11 @@ export async function setDailyClaimsEnabled(db: Firestore, enabled: boolean): Pr
 }
 
 // A second singleton doc in the same `settings` collection — the Official
-// Channel page's admin-editable links/banner. Every field is optional (null
-// when not yet configured), so the page can render gracefully before an
-// admin has filled anything in.
+// Channel page's admin-editable links/banner, extended in Milestone 16 with
+// real contact details (the CMS's "Contact information" requirement reuses
+// this existing document rather than a competing one). Every field is
+// optional (null when not yet configured), so the page can render
+// gracefully before an admin has filled anything in.
 export type OfficialChannelDoc = {
   telegramUrl: string | null;
   whatsappUrl: string | null;
@@ -46,6 +48,9 @@ export type OfficialChannelDoc = {
   websiteUrl: string | null;
   bannerImageUrl: string | null;
   bannerText: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  contactAddress: string | null;
   updatedAt: Timestamp;
 };
 
@@ -65,6 +70,9 @@ export type OfficialChannelInput = {
   websiteUrl: string | null;
   bannerImageUrl: string | null;
   bannerText: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  contactAddress: string | null;
 };
 
 export async function setOfficialChannel(db: Firestore, input: OfficialChannelInput): Promise<void> {

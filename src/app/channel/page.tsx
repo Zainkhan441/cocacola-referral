@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Send, MessageCircle, Video, Globe } from "lucide-react";
+import { Send, MessageCircle, Video, Globe, Mail, Phone, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -124,6 +124,36 @@ export default function ChannelPage() {
                     <span className="font-semibold text-white">{link.label}</span>
                   </a>
                 ))}
+              </div>
+            )}
+
+            {!loading && !error && (channel?.contactEmail || channel?.contactPhone || channel?.contactAddress) && (
+              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
+                <p className="text-sm font-semibold text-white">Contact information</p>
+                {channel?.contactEmail && (
+                  <a
+                    href={`mailto:${channel.contactEmail}`}
+                    className="flex items-center gap-2 text-sm text-white/70 hover:text-white"
+                  >
+                    <Mail className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                    {channel.contactEmail}
+                  </a>
+                )}
+                {channel?.contactPhone && (
+                  <a
+                    href={`tel:${channel.contactPhone}`}
+                    className="flex items-center gap-2 text-sm text-white/70 hover:text-white"
+                  >
+                    <Phone className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                    {channel.contactPhone}
+                  </a>
+                )}
+                {channel?.contactAddress && (
+                  <p className="flex items-center gap-2 text-sm text-white/70">
+                    <MapPin className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+                    {channel.contactAddress}
+                  </p>
+                )}
               </div>
             )}
           </>

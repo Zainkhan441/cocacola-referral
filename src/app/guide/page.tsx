@@ -2,19 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
-import {
-  FAQ_ITEMS,
-  DEPOSIT_GUIDE,
-  WITHDRAWAL_GUIDE,
-  REFERRAL_GUIDE,
-  PACKAGE_GUIDE,
-  PLATFORM_RULES,
-  type GuideStep,
-} from "@/features/guide/content";
+import { usePublishedFaq } from "@/features/guide/hooks/use-published-faq";
+import { usePublishedGuideSteps } from "@/features/guide/hooks/use-published-guide-steps";
+import { usePublishedRules } from "@/features/guide/hooks/use-published-rules";
+import type { CmsGuideCategory } from "@/lib/firestore/cms-guides";
 
 type SectionKey = "faq" | "deposit" | "withdrawal" | "referral" | "package" | "rules";
 
@@ -27,16 +25,114 @@ const SECTIONS: Array<{ key: SectionKey; label: string }> = [
   { key: "rules", label: "Rules" },
 ];
 
-function StepsList({ steps }: { steps: GuideStep[] }) {
+function GuideStepsPanel({ category }: { category: CmsGuideCategory }) {
+  const { steps, loading, error, retry } = usePublishedGuideSteps(category);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+        <Alert variant="error">{error}</Alert>
+        <Button variant="outline" size="sm" onClick={retry}>Retry</Button>
+      </div>
+    );
+  }
+  if (steps.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
+        <p className="text-sm text-white/50">This guide hasn’t been published yet.</p>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-4">
       {steps.map((step) => (
-        <div key={step.title} className="rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
+        <div key={step.id} className="rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
           <p className="font-semibold text-white">{step.title}</p>
           <p className="mt-1 text-sm text-white/60">{step.body}</p>
         </div>
       ))}
     </div>
+  );
+}
+
+function FaqPanel() {
+  const { items, loading, error, retry } = usePublishedFaq();
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-4">
+        {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-2xl" />)}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+        <Alert variant="error">{error}</Alert>
+        <Button variant="outline" size="sm" onClick={retry}>Retry</Button>
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
+        <p className="text-sm text-white/50">No FAQ items have been published yet.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {items.map((item) => (
+        <div key={item.id} className="rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
+          <p className="font-semibold text-white">{item.question}</p>
+          <p className="mt-1 text-sm text-white/60">{item.answer}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RulesPanel() {
+  const { rules, loading, error, retry } = usePublishedRules();
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-2xl" />)}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+        <Alert variant="error">{error}</Alert>
+        <Button variant="outline" size="sm" onClick={retry}>Retry</Button>
+      </div>
+    );
+  }
+  if (rules.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
+        <p className="text-sm text-white/50">No rules have been published yet.</p>
+      </div>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-3">
+      {rules.map((rule, index) => (
+        <li key={rule.id} className="flex gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm text-white/70 sm:p-5">
+          <span className="flex-shrink-0 font-bold text-brand-light">{index + 1}.</span>
+          {rule.text}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -103,35 +199,12 @@ export default function GuidePage() {
               ))}
             </div>
 
-            {section === "faq" && (
-              <div className="flex flex-col gap-4">
-                {FAQ_ITEMS.map((item) => (
-                  <div key={item.question} className="rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
-                    <p className="font-semibold text-white">{item.question}</p>
-                    <p className="mt-1 text-sm text-white/60">{item.answer}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {section === "deposit" && <StepsList steps={DEPOSIT_GUIDE} />}
-            {section === "withdrawal" && <StepsList steps={WITHDRAWAL_GUIDE} />}
-            {section === "referral" && <StepsList steps={REFERRAL_GUIDE} />}
-            {section === "package" && <StepsList steps={PACKAGE_GUIDE} />}
-
-            {section === "rules" && (
-              <ul className="flex flex-col gap-3">
-                {PLATFORM_RULES.map((rule, index) => (
-                  <li
-                    key={index}
-                    className="flex gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 text-sm text-white/70 sm:p-5"
-                  >
-                    <span className="flex-shrink-0 font-bold text-brand-light">{index + 1}.</span>
-                    {rule}
-                  </li>
-                ))}
-              </ul>
-            )}
+            {section === "faq" && <FaqPanel />}
+            {section === "deposit" && <GuideStepsPanel category="deposit" />}
+            {section === "withdrawal" && <GuideStepsPanel category="withdrawal" />}
+            {section === "referral" && <GuideStepsPanel category="referral" />}
+            {section === "package" && <GuideStepsPanel category="package" />}
+            {section === "rules" && <RulesPanel />}
           </>
         )}
       </main>

@@ -1,16 +1,43 @@
-import { siteConfig } from "@/config/site";
-import { NAV_LINKS } from "@/constants/nav";
-import { ComingSoon } from "@/components/ui/coming-soon";
-import { Container } from "@/components/ui/container";
+"use client";
 
-const LEGAL_LINKS = ["Privacy Policy", "Terms of Service"];
-// "Help Center" links to the real, live Guide & Help Center (sign-in
-// required, same as every other authenticated page); "Contact Support" has
-// no real destination yet — stays a Coming Soon stub rather than a fake link.
-const SUPPORT_LINKS = ["Contact Support"];
+import { siteConfig } from "@/config/site";
+import { Container } from "@/components/ui/container";
+import { usePublishedLinks } from "@/features/pages/hooks/use-published-links";
+
+function FooterLinkColumn({
+  title,
+  links,
+  emptyLabel,
+}: {
+  title: string;
+  links: Array<{ id: string; label: string; url: string }>;
+  emptyLabel: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <span className="text-sm font-semibold text-white">{title}</span>
+      {links.length === 0 ? (
+        <p className="text-sm text-white/30">{emptyLabel}</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {links.map((link) => (
+            <li key={link.id}>
+              <a href={link.url} className="text-sm text-white/50 transition-colors hover:text-white">
+                {link.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function Footer() {
   const year = new Date().getFullYear();
+  const { links: navLinks } = usePublishedLinks("footer_nav");
+  const { links: legalLinks } = usePublishedLinks("footer_legal");
+  const { links: supportLinks } = usePublishedLinks("footer_support");
 
   return (
     <footer className="border-t border-white/10 bg-black">
@@ -20,47 +47,27 @@ export function Footer() {
           <p className="max-w-xs text-sm text-white/50">{siteConfig.description}</p>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <span className="text-sm font-semibold text-white">Navigation</span>
-          <ul className="flex flex-col gap-2">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <a
-                  href={link.href}
-                  className="text-sm text-white/50 transition-colors hover:text-white"
-                >
-                  {link.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <span className="text-sm font-semibold text-white">Legal</span>
-          <ul className="flex flex-col gap-2">
-            {LEGAL_LINKS.map((label) => (
-              <li key={label}>
-                <ComingSoon label={label} className="px-0 py-0" />
-              </li>
-            ))}
-          </ul>
-        </div>
+        <FooterLinkColumn title="Navigation" links={navLinks} emptyLabel="Coming soon" />
+        <FooterLinkColumn title="Legal" links={legalLinks} emptyLabel="Coming soon" />
 
         <div className="flex flex-col gap-3">
           <span className="text-sm font-semibold text-white">Support</span>
           <ul className="flex flex-col gap-2">
             <li>
-              <a
-                href="/guide"
-                className="text-sm text-white/50 transition-colors hover:text-white"
-              >
+              <a href="/guide" className="text-sm text-white/50 transition-colors hover:text-white">
                 Help Center
               </a>
             </li>
-            {SUPPORT_LINKS.map((label) => (
-              <li key={label}>
-                <ComingSoon label={label} className="px-0 py-0" />
+            <li>
+              <a href="/channel" className="text-sm text-white/50 transition-colors hover:text-white">
+                Contact Support
+              </a>
+            </li>
+            {supportLinks.map((link) => (
+              <li key={link.id}>
+                <a href={link.url} className="text-sm text-white/50 transition-colors hover:text-white">
+                  {link.label}
+                </a>
               </li>
             ))}
           </ul>

@@ -1,46 +1,19 @@
+"use client";
+
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { AccordionItem } from "@/components/ui/accordion";
-import { siteConfig } from "@/config/site";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { usePublishedFaq } from "@/features/guide/hooks/use-published-faq";
 
-const FAQS = [
-  {
-    question: `Is ${siteConfig.name} live?`,
-    answer:
-      "Yes — registration is open now. Create an account, verify your email, and you can browse packages and start referring right away.",
-  },
-  {
-    question: "How do referral levels work?",
-    answer:
-      "You earn not just from people you refer directly, but from their referrals too — down to 12 levels deep, at reward rates set transparently by the platform.",
-  },
-  {
-    question: "How do deposits work?",
-    answer:
-      "Deposits will be made via Easypaisa. You’ll upload a screenshot of your payment, and our team manually verifies it before crediting your wallet.",
-  },
-  {
-    question: "How do withdrawals work?",
-    answer:
-      "You’ll submit a withdrawal request from your wallet. Our admin team reviews and processes it, and you can track its status throughout.",
-  },
-  {
-    question: "Is my account secure?",
-    answer:
-      "Yes. Accounts are protected with modern authentication, and every sensitive transaction is reviewed before it’s finalized.",
-  },
-  {
-    question: "Will there be mobile support?",
-    answer: `Yes. ${siteConfig.name} is being built mobile-first so you can manage your wallet, referrals, and withdrawals from any device.`,
-  },
-  {
-    question: "What happens to my data?",
-    answer:
-      "Your information is used only to operate your account and process transactions. We don’t sell personal data to third parties.",
-  },
-];
-
+// Reads the same admin-managed FAQ collection as the Guide & Help Center's
+// FAQ tab (features/admin/lib/cms-seed.ts) — one source of truth, editable
+// from Admin → Website → FAQ, no hardcoded questions here.
 export function Faq() {
+  const { items, loading, error, retry } = usePublishedFaq();
+
   return (
     <section id="faq" className="border-t border-white/10 bg-surface py-24">
       <Container className="flex flex-col gap-16">
@@ -51,13 +24,34 @@ export function Faq() {
         />
 
         <div className="mx-auto w-full max-w-2xl">
-          {FAQS.map((faq) => (
-            <AccordionItem
-              key={faq.question}
-              question={faq.question}
-              answer={faq.answer}
-            />
-          ))}
+          {loading && (
+            <div className="flex flex-col gap-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-14 w-full rounded-xl" />
+              ))}
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+              <Alert variant="error">{error}</Alert>
+              <Button variant="outline" size="sm" onClick={retry}>
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {!loading && !error && items.length === 0 && (
+            <p className="text-center text-sm text-white/50">
+              FAQ content hasn’t been published yet — check back soon.
+            </p>
+          )}
+
+          {!loading &&
+            !error &&
+            items.map((item) => (
+              <AccordionItem key={item.id} question={item.question} answer={item.answer} />
+            ))}
         </div>
       </Container>
     </section>

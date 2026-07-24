@@ -13,5 +13,12 @@ export const ADMIN_NAV_LINKS = [
   { label: "Bonus Claims", href: "/admin/bonus-claims" },
   { label: "Notifications", href: "/admin/notifications" },
   { label: "Channel", href: "/admin/channel" },
+  { label: "Pages", href: "/admin/website/pages" },
+  { label: "Announcements", href: "/admin/website/announcements" },
+  { label: "FAQ", href: "/admin/website/faq" },
+  { label: "Guides", href: "/admin/website/guides" },
+  { label: "Rules", href: "/admin/website/rules" },
+  { label: "Navigation", href: "/admin/website/navigation" },
+  { label: "Media", href: "/admin/website/media" },
   { label: "Activity", href: "/admin/activity" },
 ] as const;

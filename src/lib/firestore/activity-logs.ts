@@ -27,7 +27,15 @@ export type ActivityTargetType =
   | "taskSubmission"
   | "bonusTier"
   | "bonusClaim"
-  | "notification";
+  | "notification"
+  | "cmsPage"
+  | "cmsSection"
+  | "cmsAnnouncement"
+  | "cmsFaq"
+  | "cmsGuideStep"
+  | "cmsRule"
+  | "cmsLink"
+  | "cmsMedia";
 
 // Append-only audit trail of every mutating admin action. Written by the
 // same client-side transaction that performs the action itself — never

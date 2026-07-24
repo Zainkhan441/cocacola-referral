@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
-import { NAV_LINKS } from "@/constants/nav";
 import { siteConfig } from "@/config/site";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { usePublishedLinks } from "@/features/pages/hooks/use-published-links";
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const { links: NAV_LINKS } = usePublishedLinks("header");
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/80 backdrop-blur-md">
@@ -23,9 +24,9 @@ export function Navbar() {
 
         <ul className="hidden items-center gap-8 md:flex">
           {NAV_LINKS.map((link) => (
-            <li key={link.href}>
+            <li key={link.id}>
               <a
-                href={link.href}
+                href={link.url}
                 className="text-sm font-medium text-white/70 transition-colors hover:text-white"
               >
                 {link.label}
@@ -68,9 +69,9 @@ export function Navbar() {
       >
         <ul className="flex flex-col gap-1 px-6 py-4">
           {NAV_LINKS.map((link) => (
-            <li key={link.href}>
+            <li key={link.id}>
               <a
-                href={link.href}
+                href={link.url}
                 onClick={() => setOpen(false)}
                 className="block rounded-lg px-3 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/5 hover:text-white"
               >

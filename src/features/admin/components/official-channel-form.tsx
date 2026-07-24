@@ -52,6 +52,9 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
   const [websiteUrl, setWebsiteUrl] = useState(initial?.websiteUrl ?? "");
   const [bannerImageUrl, setBannerImageUrl] = useState(initial?.bannerImageUrl ?? "");
   const [bannerText, setBannerText] = useState(initial?.bannerText ?? "");
+  const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
+  const [contactPhone, setContactPhone] = useState(initial?.contactPhone ?? "");
+  const [contactAddress, setContactAddress] = useState(initial?.contactAddress ?? "");
 
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -73,6 +76,9 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
           websiteUrl: websiteUrl.trim() || null,
           bannerImageUrl: bannerImageUrl.trim() || null,
           bannerText: bannerText.trim() || null,
+          contactEmail: contactEmail.trim() || null,
+          contactPhone: contactPhone.trim() || null,
+          contactAddress: contactAddress.trim() || null,
         },
         { adminUid, adminName },
       );
@@ -135,6 +141,28 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
           onChange={(event) => setBannerText(event.target.value)}
           rows={2}
           className="w-full rounded-xl border border-white/15 bg-surface-3 px-4 py-2.5 text-sm text-white transition-colors focus:border-brand focus:outline-none"
+        />
+      </div>
+
+      <h2 className="text-sm font-semibold text-white">Contact information</h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <FormField
+          label="Contact email (optional)"
+          type="email"
+          value={contactEmail}
+          onChange={(event) => setContactEmail(event.target.value)}
+        />
+        <FormField
+          label="Contact phone (optional)"
+          type="text"
+          value={contactPhone}
+          onChange={(event) => setContactPhone(event.target.value)}
+        />
+        <FormField
+          label="Address (optional)"
+          type="text"
+          value={contactAddress}
+          onChange={(event) => setContactAddress(event.target.value)}
         />
       </div>
 

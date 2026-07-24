@@ -768,8 +768,219 @@ service cloud.firestore {
           && (request.resource.data.youtubeUrl == null || request.resource.data.youtubeUrl is string)
           && (request.resource.data.websiteUrl == null || request.resource.data.websiteUrl is string)
           && (request.resource.data.bannerImageUrl == null || request.resource.data.bannerImageUrl is string)
-          && (request.resource.data.bannerText == null || request.resource.data.bannerText is string))
+          && (request.resource.data.bannerText == null || request.resource.data.bannerText is string)
+          && (request.resource.data.contactEmail == null || request.resource.data.contactEmail is string)
+          && (request.resource.data.contactPhone == null || request.resource.data.contactPhone is string)
+          && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string))
       );
+    }
+
+    // --- Milestone 16: Website Content Management System ---
+    // Every CMS collection below follows the same shape: any signed-in OR
+    // anonymous visitor may read published content (allow read is split
+    // into two conditions since public marketing pages are visitor-facing
+    // and must not require sign-in), only an admin may write, and — unlike
+    // every financial collection in this file — real deletion is allowed,
+    // since marketing/informational content carries no audit/money
+    // integrity requirement the way deposits or referral rewards do.
+    // "isPublished" gates visibility; list/query-shaped reads for the
+    // public must explicitly filter on it themselves (see cms-*.ts) since
+    // Firestore rules cannot partially filter an unfiltered list request.
+
+    function cmsContentTypeIsValid(type) {
+      return type in [
+        "hero", "rich_text", "image_text", "cards_grid", "faq",
+        "contact_block", "cta", "banner", "video", "document", "social_links"
+      ];
+    }
+
+    // Admin-authored custom pages (About Us, Contact Us, Privacy Policy,
+    // Terms, Promotions, News, Offers, or any informational page), rendered
+    // publicly at /p/{slug}.
+    match /cmsPages/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.slug is string && request.resource.data.slug.size() > 0
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && (request.resource.data.metaDescription == null || request.resource.data.metaDescription is string)
+        && request.resource.data.isPublished is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.slug is string && request.resource.data.slug.size() > 0
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && (request.resource.data.metaDescription == null || request.resource.data.metaDescription is string)
+        && request.resource.data.isPublished is bool;
+      allow delete: if isAdmin();
+    }
+
+    // Ordered content blocks belonging to a cmsPages/{pageId} document. No
+    // "custom_html" type exists in cmsContentTypeIsValid — raw markup can
+    // never be stored here, let alone rendered.
+    match /cmsSections/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.pageId is string
+        && exists(/databases/$(database)/documents/cmsPages/$(request.resource.data.pageId))
+        && cmsContentTypeIsValid(request.resource.data.type)
+        && (request.resource.data.title == null || request.resource.data.title is string)
+        && (request.resource.data.subtitle == null || request.resource.data.subtitle is string)
+        && (request.resource.data.description == null || request.resource.data.description is string)
+        && (request.resource.data.richText == null || request.resource.data.richText is string)
+        && (request.resource.data.mediaUrl == null || request.resource.data.mediaUrl is string)
+        && (request.resource.data.buttonLabel == null || request.resource.data.buttonLabel is string)
+        && (request.resource.data.buttonUrl == null || request.resource.data.buttonUrl is string)
+        && request.resource.data.items is list
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool
+        && (request.resource.data.startDate == null || request.resource.data.startDate is timestamp)
+        && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp);
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.pageId == resource.data.pageId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && cmsContentTypeIsValid(request.resource.data.type)
+        && (request.resource.data.title == null || request.resource.data.title is string)
+        && (request.resource.data.subtitle == null || request.resource.data.subtitle is string)
+        && (request.resource.data.description == null || request.resource.data.description is string)
+        && (request.resource.data.richText == null || request.resource.data.richText is string)
+        && (request.resource.data.mediaUrl == null || request.resource.data.mediaUrl is string)
+        && (request.resource.data.buttonLabel == null || request.resource.data.buttonLabel is string)
+        && (request.resource.data.buttonUrl == null || request.resource.data.buttonUrl is string)
+        && request.resource.data.items is list
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool
+        && (request.resource.data.startDate == null || request.resource.data.startDate is timestamp)
+        && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp);
+      allow delete: if isAdmin();
+    }
+
+    // Site-wide public announcement banners — distinct from the personal,
+    // per-user notification inbox (userNotifications above).
+    match /cmsAnnouncements/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.message is string && request.resource.data.message.size() > 0
+        && (request.resource.data.buttonLabel == null || request.resource.data.buttonLabel is string)
+        && (request.resource.data.buttonUrl == null || request.resource.data.buttonUrl is string)
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool
+        && (request.resource.data.startDate == null || request.resource.data.startDate is timestamp)
+        && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp);
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.message is string && request.resource.data.message.size() > 0
+        && (request.resource.data.buttonLabel == null || request.resource.data.buttonLabel is string)
+        && (request.resource.data.buttonUrl == null || request.resource.data.buttonUrl is string)
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool
+        && (request.resource.data.startDate == null || request.resource.data.startDate is timestamp)
+        && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp);
+      allow delete: if isAdmin();
+    }
+
+    // Feeds both the public landing page's FAQ section and the Guide & Help
+    // Center's FAQ tab — one source of truth (replaces the Milestone 13
+    // hardcoded FAQ_ITEMS).
+    match /cmsFaqItems/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.question is string && request.resource.data.question.size() > 0
+        && request.resource.data.answer is string && request.resource.data.answer.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.question is string && request.resource.data.question.size() > 0
+        && request.resource.data.answer is string && request.resource.data.answer.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow delete: if isAdmin();
+    }
+
+    // Feeds the Guide & Help Center (replaces the Milestone 13 hardcoded
+    // DEPOSIT_GUIDE/WITHDRAWAL_GUIDE/REFERRAL_GUIDE/PACKAGE_GUIDE arrays).
+    match /cmsGuideSteps/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.category in ["deposit", "withdrawal", "referral", "package"]
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.body is string && request.resource.data.body.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.category in ["deposit", "withdrawal", "referral", "package"]
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.body is string && request.resource.data.body.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow delete: if isAdmin();
+    }
+
+    // Feeds the Guide & Help Center's Rules tab (replaces the Milestone 13
+    // hardcoded PLATFORM_RULES array).
+    match /cmsRules/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.text is string && request.resource.data.text.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.text is string && request.resource.data.text.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow delete: if isAdmin();
+    }
+
+    // Header navigation and footer content (replaces the hardcoded
+    // NAV_LINKS/LEGAL_LINKS/SUPPORT_LINKS constants).
+    match /cmsLinks/{id} {
+      allow read: if isAdmin() || resource.data.isPublished == true;
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.placement in ["header", "footer_nav", "footer_legal", "footer_support"]
+        && request.resource.data.label is string && request.resource.data.label.size() > 0
+        && request.resource.data.url is string && request.resource.data.url.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.placement in ["header", "footer_nav", "footer_legal", "footer_support"]
+        && request.resource.data.label is string && request.resource.data.label.size() > 0
+        && request.resource.data.url is string && request.resource.data.url.size() > 0
+        && request.resource.data.order is number
+        && request.resource.data.isPublished is bool;
+      allow delete: if isAdmin();
+    }
+
+    // An admin-only reference library of vetted external media URLs for
+    // reuse when building sections — never rendered directly to the public,
+    // so unlike the other CMS collections above, this one has no public
+    // read path at all.
+    match /cmsMedia/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.id == id
+        && request.resource.data.label is string && request.resource.data.label.size() > 0
+        && request.resource.data.url is string && request.resource.data.url.size() > 0
+        && request.resource.data.type in ["image", "video", "document"];
+      allow update: if false;
+      allow delete: if isAdmin();
     }
   }
 }

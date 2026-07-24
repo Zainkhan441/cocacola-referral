@@ -1,5 +1,6 @@
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
+import { AnnouncementBanner } from "@/components/sections/announcement-banner";
 import { Hero } from "@/components/sections/hero";
 import { HowItWorks } from "@/components/sections/how-it-works";
 import { Benefits } from "@/components/sections/benefits";
@@ -13,6 +14,7 @@ export default function Home() {
   return (
     <>
       <Navbar />
+      <AnnouncementBanner />
       <main>
         <Hero />
         <HowItWorks />
