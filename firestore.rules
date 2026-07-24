@@ -1,0 +1,775 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    // The only source of truth for "is this caller an admin" — role lives on
+    // the requester's own Firestore profile, which is frozen from every
+    // client write (see users/{uid} below), so a compromised/malicious
+    // client can never grant itself this by writing its own document.
+    function isAdmin() {
+      return isSignedIn() && userData(request.auth.uid).role == "admin";
+    }
+
+    // A withdrawal is only allowed up to the per-request limit defined by
+    // the requester's own active package, and only while that specific
+    // user's package assignment hasn't expired — a package can be globally
+    // active (isActive) while this one user's own term has still lapsed.
+    function withinPackageWithdrawalLimit(uid, amount) {
+      let user = userData(uid);
+      return user.package != null
+        && exists(/databases/$(database)/documents/packages/$(user.package))
+        && user.packageExpiresAt != null
+        && request.time < user.packageExpiresAt
+        && amount <= get(/databases/$(database)/documents/packages/$(user.package)).data.withdrawalLimitPerRequest;
+    }
+
+    function isValidPackageRef(pkg) {
+      return pkg == null || exists(/databases/$(database)/documents/packages/$(pkg));
+    }
+
+    // Shared baseline for both tasks and bonus tiers: the platform's other
+    // earning mechanisms (daily claims, referral qualification) all require
+    // an active, unexpired, still-enabled package — tasks/bonuses follow the
+    // same baseline rather than inventing a separate rule.
+    function userHasQualifyingPackage(uid) {
+      let user = userData(uid);
+      return user.package != null
+        && user.packageExpiresAt != null
+        && request.time < user.packageExpiresAt
+        && exists(/databases/$(database)/documents/packages/$(user.package))
+        && get(/databases/$(database)/documents/packages/$(user.package)).data.isActive == true;
+    }
+
+    // A task's own two (mutually exclusive) package gates on top of the
+    // qualifying-package baseline above: an exact required package, or a
+    // minimum package price (packages have no separate tier/level field, so
+    // price is the platform's existing proxy for rank).
+    function taskEligible(uid, taskId) {
+      let user = userData(uid);
+      let task = get(/databases/$(database)/documents/tasks/$(taskId)).data;
+      return userHasQualifyingPackage(uid)
+        && (task.requiredPackageId == null || user.package == task.requiredPackageId)
+        && (task.minPackagePrice == null
+            || get(/databases/$(database)/documents/packages/$(user.package)).data.price >= task.minPackagePrice);
+    }
+
+    // A bonus tier's package gate — exact match only (Milestone 12 asked for
+    // a single "required package", not a minimum-price variant like tasks).
+    function bonusPackageEligible(uid, tierId) {
+      let user = userData(uid);
+      let tier = get(/databases/$(database)/documents/bonusTiers/$(tierId)).data;
+      return tier.requiredPackageId == null || user.package == tier.requiredPackageId;
+    }
+
+    // Absence of settings/global means daily claims are ON by default — the
+    // feature works out of the box without requiring an admin to explicitly
+    // enable it first.
+    function dailyClaimsGloballyEnabled() {
+      return !exists(/databases/$(database)/documents/settings/global)
+        || get(/databases/$(database)/documents/settings/global).data.dailyClaimsEnabled == true;
+    }
+
+    function dailyEarningFor(pkg) {
+      return get(/databases/$(database)/documents/packages/$(pkg)).data.dailyEarning;
+    }
+
+    // `user` is an already-resolved users/{uid} data map (either `resource.data`
+    // when called from within the users/{uid} rule itself, or `userData(uid)`
+    // when called from a sibling collection's rule) — never re-fetched here,
+    // so this works identically in both places. The rolling 24h cooldown on
+    // lastDailyClaimAt is the sole anti-replay gate: Firestore rules cannot
+    // compute a calendar-date string, so "one claim per day" is enforced as
+    // "at least 24h since your own last successful claim" instead. A
+    // package that's globally active can still be individually expired for
+    // this one user (packageExpiresAt in the past) — both are checked.
+    function canClaimDaily(user) {
+      return dailyClaimsGloballyEnabled()
+        && user.package != null
+        && exists(/databases/$(database)/documents/packages/$(user.package))
+        && get(/databases/$(database)/documents/packages/$(user.package)).data.isActive == true
+        && user.packageExpiresAt != null
+        && request.time < user.packageExpiresAt
+        && (user.lastDailyClaimAt == null
+            || request.time > user.lastDailyClaimAt + duration.value(24, "h"));
+    }
+
+    // The owner path: a plain profile edit (e.g. the emailVerified sync
+    // after verification, or a Settings-page profile/preference change) may
+    // only ever touch these fields — every money/role/status/package/
+    // referral-count field is frozen by omission, including any added after
+    // this rule was written, since affectedKeys() must be a subset of
+    // exactly this list. `referredBy` is deliberately absent (Milestone 11):
+    // it's set once at creation and frozen forever after, so a user can
+    // never retroactively reassign who referred them to redirect a future
+    // package purchase's referral chain to an accomplice.
+    function ownerCanUpdateUser() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly([
+          "fullName", "fullNameLower", "email", "referralCode", "emailVerified",
+          "notificationsEnabled", "themePreference", "languagePreference", "updatedAt"
+        ])
+        && (!("notificationsEnabled" in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.notificationsEnabled is bool)
+        && (!("themePreference" in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.themePreference in ["dark", "light", "system"])
+        && (!("languagePreference" in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.languagePreference in ["en", "ur"]);
+    }
+
+    // The self-service daily-claim path: the only fields allowed to change
+    // are exactly the ones a claim touches, each formula-validated against
+    // the caller's own current package.
+    function ownerCanClaimDaily() {
+      return canClaimDaily(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(["walletBalance", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
+        && request.resource.data.lastDailyClaimAt == request.time
+        && request.resource.data.walletBalance
+             == resource.data.walletBalance + dailyEarningFor(resource.data.package)
+        && request.resource.data.totalEarnings
+             == resource.data.totalEarnings + dailyEarningFor(resource.data.package)
+        && request.resource.data.todayEarnings == dailyEarningFor(resource.data.package);
+    }
+
+    // The self-service "I'm submitting a package-purchase deposit" marker —
+    // the only field this path may touch, and only settable while nothing
+    // else is already pending (no client can ever mark a second one
+    // pending, since the precondition reads the value BEFORE this write).
+    function ownerCanMarkPendingPurchase() {
+      return resource.data.pendingPackagePurchaseId == null
+        && request.resource.data.pendingPackagePurchaseId is string
+        && request.resource.data.pendingPackagePurchaseId.size() > 0
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(["pendingPackagePurchaseId", "updatedAt"]);
+    }
+
+    // Mirrors ownerCanClaimDaily() for the wallets/{uid} document — reads
+    // the user's package/cooldown via userData(uid) since wallets/{uid}
+    // itself doesn't store those fields. Both writes happen in the same
+    // client transaction as the users/{uid} update above, and both are
+    // independently gated the same way, so neither can be written alone by
+    // a client skipping the other.
+    function ownerCanClaimDailyWallet(uid) {
+      let user = userData(uid);
+      return canClaimDaily(user)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["balance", "totalEarnings", "updatedAt"])
+        && request.resource.data.balance == resource.data.balance + dailyEarningFor(user.package)
+        && request.resource.data.totalEarnings == resource.data.totalEarnings + dailyEarningFor(user.package);
+    }
+
+    // The admin path: deliberately narrower than "admin can do anything".
+    // Admin may only ever move money fields (never below 0), flip
+    // accountStatus, reassign package and its lifecycle dates, or clear the
+    // pending-purchase marker — every identity/profile field (including
+    // role itself) stays frozen even for an admin write, so a compromised
+    // admin session can't rewrite who a user is or mint more admins. Role
+    // escalation is intentionally impossible through the app; the first
+    // admin is bootstrapped by hand in the Firebase console. Exact
+    // activation/expiry arithmetic isn't independently re-derived here
+    // (Firestore rules can't verify serverTimestamp() + N days against a
+    // client-supplied value without either exact-equality clock-skew
+    // fragility or a wide tolerance window) — admin-computed values get
+    // type/ordering sanity checks only, consistent with how admin-approved
+    // wallet credits are already trusted elsewhere in this file.
+    function adminCanUpdateUser() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        "walletBalance", "totalEarnings", "pendingEarnings", "todayEarnings",
+        "accountStatus", "package", "packagePurchasedAt", "packageActivatedAt",
+        "packageExpiresAt", "pendingPackagePurchaseId", "updatedAt"
+      ])
+        && request.resource.data.walletBalance is number && request.resource.data.walletBalance >= 0
+        && request.resource.data.totalEarnings is number && request.resource.data.totalEarnings >= 0
+        && request.resource.data.pendingEarnings is number && request.resource.data.pendingEarnings >= 0
+        && request.resource.data.todayEarnings is number && request.resource.data.todayEarnings >= 0
+        && request.resource.data.accountStatus in ["active", "suspended", "banned"]
+        && isValidPackageRef(request.resource.data.package)
+        && (request.resource.data.packagePurchasedAt == null || request.resource.data.packagePurchasedAt is timestamp)
+        && (request.resource.data.packageActivatedAt == null || request.resource.data.packageActivatedAt is timestamp)
+        && (request.resource.data.packageExpiresAt == null || request.resource.data.packageExpiresAt is timestamp)
+        && (request.resource.data.pendingPackagePurchaseId == null || request.resource.data.pendingPackagePurchaseId is string);
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.walletBalance == 0
+        && request.resource.data.totalEarnings == 0
+        && request.resource.data.pendingEarnings == 0
+        && request.resource.data.todayEarnings == 0
+        && request.resource.data.totalReferrals == 0
+        && request.resource.data.activeReferrals == 0
+        && request.resource.data.package == null
+        && request.resource.data.packagePurchasedAt == null
+        && request.resource.data.packageActivatedAt == null
+        && request.resource.data.packageExpiresAt == null
+        && request.resource.data.pendingPackagePurchaseId == null
+        && request.resource.data.lastDailyClaimAt == null
+        && request.resource.data.notificationsEnabled == true
+        && request.resource.data.themePreference == "dark"
+        && request.resource.data.languagePreference == "en"
+        && request.resource.data.role == "user"
+        && request.resource.data.accountStatus == "active";
+      allow update: if (isOwner(uid) && ownerCanUpdateUser())
+        || (isAdmin() && adminCanUpdateUser())
+        || (isOwner(uid) && ownerCanClaimDaily())
+        || (isOwner(uid) && ownerCanMarkPendingPurchase());
+      allow delete: if false;
+    }
+
+    match /wallets/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.balance == 0
+        && request.resource.data.totalEarnings == 0
+        && request.resource.data.pendingEarnings == 0;
+      // Kept in sync with users/{uid}'s denormalized copy by the same admin
+      // transaction that approves a deposit/withdrawal, or by the caller's
+      // own daily-claim transaction — never a plain client write, and never
+      // allowed to go negative.
+      allow update: if (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(["balance", "totalEarnings", "pendingEarnings", "updatedAt"])
+          && request.resource.data.balance is number && request.resource.data.balance >= 0
+          && request.resource.data.totalEarnings is number && request.resource.data.totalEarnings >= 0
+          && request.resource.data.pendingEarnings is number && request.resource.data.pendingEarnings >= 0)
+        || (isOwner(uid) && ownerCanClaimDailyWallet(uid));
+      allow delete: if false;
+    }
+
+    // Keyed by the code itself. Public `get` is required so a referral link
+    // can be resolved to a uid during signup without exposing full profiles;
+    // `list` stays closed so the whole collection can't be scraped.
+    // `ancestorChain` is self-reported by the owner (copied from whatever
+    // code they themselves signed up under) — trusted for team-page display
+    // only, never for money: real referral rewards are computed from the
+    // immutable users/{uid}.referredBy chain, not this field. See
+    // team-members.ts's trust-boundary note for the full reasoning.
+    match /referralCodes/{code} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.ancestorChain is list
+        && request.resource.data.ancestorChain.size() <= 11;
+      allow update, delete: if false;
+    }
+
+    // An append-only ledger. An admin-run approval transaction may add an
+    // entry for any type (a real, already-approved money movement); a
+    // signed-in user may additionally add only their own "daily_reward"
+    // entry, and only alongside a valid claim (amount pinned to their
+    // current package's rate, cooldown enforced by canClaimDaily). Once
+    // written, a transaction record is permanent — not even an admin can
+    // edit or delete history.
+    match /transactions/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if (isAdmin()
+          && request.resource.data.uid is string
+          && request.resource.data.type in ["deposit", "withdrawal", "referral_reward", "daily_reward", "package_purchase", "task_reward", "bonus_reward"]
+          && request.resource.data.amount is number && request.resource.data.amount > 0
+          && request.resource.data.status in ["pending", "completed", "failed"]
+          && request.resource.data.description is string)
+        || (isSignedIn()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.type == "daily_reward"
+          && request.resource.data.status == "completed"
+          && request.resource.data.description is string
+          && canClaimDaily(userData(request.auth.uid))
+          && request.resource.data.amount == dailyEarningFor(userData(request.auth.uid).package));
+      allow update, delete: if false;
+    }
+
+    function adminCanReviewRequest() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "reviewedBy", "updatedAt"])
+        && resource.data.status == "pending"
+        && request.resource.data.status in ["approved", "rejected"]
+        && request.resource.data.reviewedBy == request.auth.uid;
+    }
+
+    // Users may only ever create their own deposit request, always starting
+    // "pending" with no reviewer. A plain top-up must fall within the
+    // generic Rs 500–100,000 range; a package-purchase deposit instead must
+    // exactly match that package's own price (whatever it is, however far
+    // outside the generic range), target only an active package, and can
+    // only be created while the requester has no other package purchase
+    // already awaiting review. An admin may only flip a pending request to
+    // approved/rejected and stamp themselves as reviewer — every other
+    // field, including the amount, can never change post-submission, by
+    // anyone.
+    match /deposits/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.userName is string
+        && request.resource.data.userName.size() > 0
+        && request.resource.data.status == "pending"
+        && request.resource.data.reviewedBy == null
+        && request.resource.data.method == "easypaisa"
+        && request.resource.data.amount is number
+        && request.resource.data.referenceId is string
+        && request.resource.data.referenceId.size() > 0
+        && (request.resource.data.screenshotUrl == null
+            || request.resource.data.screenshotUrl is string)
+        && isValidPackageRef(request.resource.data.packageId)
+        && (
+             (request.resource.data.packageId == null
+               && request.resource.data.amount >= 500
+               && request.resource.data.amount <= 100000)
+             || (request.resource.data.packageId != null
+               && get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.isActive == true
+               && request.resource.data.amount == get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.price
+               && userData(request.auth.uid).pendingPackagePurchaseId == null)
+           );
+      allow update: if isAdmin() && adminCanReviewRequest();
+      allow delete: if false;
+    }
+
+    // Same shape as deposits, plus: amount can never exceed the requester's
+    // current wallet balance nor their active, unexpired package's
+    // per-request limit.
+    match /withdrawals/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.userName is string
+        && request.resource.data.userName.size() > 0
+        && request.resource.data.status == "pending"
+        && request.resource.data.reviewedBy == null
+        && request.resource.data.method == "easypaisa"
+        && request.resource.data.amount is number
+        && request.resource.data.amount >= 500
+        && request.resource.data.accountName is string
+        && request.resource.data.accountName.size() > 0
+        && request.resource.data.accountNumber is string
+        && request.resource.data.accountNumber.size() > 0
+        && request.resource.data.amount <= userData(request.auth.uid).walletBalance
+        && withinPackageWithdrawalLimit(request.auth.uid, request.resource.data.amount);
+      allow update: if isAdmin() && adminCanReviewRequest();
+      allow delete: if false;
+    }
+
+    // Granted only by the admin-run deposit-approval transaction, up to once
+    // per (depositId, level) pair — the doc id itself is deterministic
+    // (`${depositId}_L${level}`) so a retried transaction can never double
+    // this write, and it's never a client write. Immutable once written,
+    // same as transactions.
+    match /referralRewards/{id} {
+      allow read: if isSignedIn() && (resource.data.earnerUid == request.auth.uid || isAdmin());
+      allow create: if isAdmin()
+        && request.resource.data.earnerUid is string
+        && request.resource.data.earnerName is string
+        && request.resource.data.sourceUid is string
+        && request.resource.data.sourceName is string
+        && request.resource.data.level is number
+        && request.resource.data.level > 0
+        && request.resource.data.level <= 12
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.rewardType in ["percentage", "fixed"]
+        && request.resource.data.rewardValue is number && request.resource.data.rewardValue >= 0
+        && request.resource.data.packageId is string
+        && request.resource.data.packagePrice is number && request.resource.data.packagePrice > 0
+        && request.resource.data.depositId is string
+        && request.resource.data.status == "credited";
+      allow update, delete: if false;
+    }
+
+    // Admin-configurable payout rate for each of the 12 referral levels — the
+    // single source of truth the payout engine reads (see approveDeposit);
+    // a level whose document doesn't exist is treated as disabled, never
+    // defaulted to a hardcoded rate. Any signed-in user may read these (the
+    // rates aren't sensitive and knowing them isn't a security concern);
+    // only an admin may write.
+    match /referralLevelSettings/{level} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin()
+        && request.resource.data.level is number
+        && request.resource.data.level == int(level)
+        && request.resource.data.level > 0
+        && request.resource.data.level <= 12
+        && request.resource.data.rewardType in ["percentage", "fixed"]
+        && request.resource.data.rewardValue is number && request.resource.data.rewardValue >= 0
+        && request.resource.data.enabled is bool;
+      allow delete: if false;
+    }
+
+    // One entry per (ancestor, member) pair, doc id `${ancestorUid}_${memberUid}`
+    // — lets an ancestor see their own downline without a rule needing to
+    // walk an arbitrary-depth referredBy chain (infeasible in Firestore
+    // rules). Created either by the member themselves at signup (self-fan-out
+    // from their referrer's public ancestorChain) or by an admin (used both
+    // for the one-time backfill of pre-Milestone-11 signups and for keeping
+    // packageId/packageName/packageExpiresAt in sync on every future
+    // purchase/renewal — see team-members.ts's trust-boundary note for why
+    // self-reported ancestor/level fields are safe here).
+    match /teamMembers/{id} {
+      allow read: if isSignedIn() && (resource.data.ancestorUid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && (request.resource.data.memberUid == request.auth.uid || isAdmin())
+        && request.resource.data.ancestorUid is string
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.ancestorUid))
+        && request.resource.data.memberUid is string
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.memberUid))
+        && request.resource.data.memberName is string
+        && request.resource.data.memberName.size() > 0
+        && request.resource.data.level is number
+        && request.resource.data.level > 0
+        && request.resource.data.level <= 12
+        && request.resource.data.joinedAt is timestamp
+        && (request.resource.data.packageId == null || request.resource.data.packageId is string)
+        && (request.resource.data.packageName == null || request.resource.data.packageName is string)
+        && (request.resource.data.packageExpiresAt == null || request.resource.data.packageExpiresAt is timestamp);
+      // Package-state sync only — admin-only, and only these fields, so a
+      // client can never rewrite the ancestor/member/level/joinedAt identity
+      // of an existing team record.
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(["packageId", "packageName", "packageExpiresAt", "updatedAt"]);
+      allow delete: if false;
+    }
+
+    // A claim is self-service: the document itself IS the claim record, so
+    // its create rule mirrors the same canClaimDaily/dailyEarningFor checks
+    // as the users/{uid} and wallets/{uid} writes it accompanies in the same
+    // client transaction. Once written, immutable — a user cannot edit their
+    // own claim history.
+    match /dailyRewards/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.packageId == userData(request.auth.uid).package
+        && request.resource.data.amount == dailyEarningFor(request.resource.data.packageId)
+        && request.resource.data.status == "claimed"
+        && request.resource.data.rewardDate is string
+        && canClaimDaily(userData(request.auth.uid));
+      allow update, delete: if false;
+    }
+
+    // Immutable, admin-written purchase history — the record that survives
+    // "always fresh" package replacement wiping users/{uid}'s own lifecycle
+    // fields on every new purchase.
+    match /packagePurchases/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAdmin()
+        && request.resource.data.uid is string
+        && request.resource.data.packageId is string
+        && request.resource.data.packageName is string
+        && request.resource.data.price is number && request.resource.data.price > 0
+        && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.depositId is string
+        && request.resource.data.purchasedAt is timestamp
+        && request.resource.data.activatedAt is timestamp
+        && request.resource.data.expiresAt is timestamp;
+      allow update, delete: if false;
+    }
+
+    // Admin-managed task definitions (Milestone 12). Any signed-in user may
+    // read them (needed to browse available tasks and resolve their own
+    // eligibility); only an admin may write. Never deleted — disabled or
+    // archived instead — so an old taskSubmission's taskId always resolves.
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin()
+        && request.resource.data.id == taskId
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.description is string
+        && request.resource.data.instructions is string
+        && request.resource.data.rewardAmount is number && request.resource.data.rewardAmount > 0
+        && isValidPackageRef(request.resource.data.requiredPackageId)
+        && (request.resource.data.minPackagePrice == null
+            || (request.resource.data.minPackagePrice is number && request.resource.data.minPackagePrice >= 0))
+        && request.resource.data.startDate is timestamp
+        && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp)
+        && request.resource.data.frequency in ["one_time", "daily"]
+        && request.resource.data.proofRequired is bool
+        && request.resource.data.status in ["active", "disabled", "archived"];
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.description is string
+        && request.resource.data.instructions is string
+        && request.resource.data.rewardAmount is number && request.resource.data.rewardAmount > 0
+        && isValidPackageRef(request.resource.data.requiredPackageId)
+        && (request.resource.data.minPackagePrice == null
+            || (request.resource.data.minPackagePrice is number && request.resource.data.minPackagePrice >= 0))
+        && request.resource.data.startDate is timestamp
+        && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp)
+        && request.resource.data.frequency in ["one_time", "daily"]
+        && request.resource.data.proofRequired is bool
+        && request.resource.data.status in ["active", "disabled", "archived"];
+      allow delete: if false;
+    }
+
+    // A user's self-submitted task completion. Duplicate prevention differs
+    // by frequency: a "one_time" task's doc id must be `${taskId}_${uid}` —
+    // Firestore's own create-vs-update distinction (this rule only ever
+    // allows `create`) means a second attempt at that same path is
+    // evaluated as an update and denied, with no extra state needed. A
+    // "daily" task uses an auto-id instead, gated by the sibling
+    // taskCooldowns/{uid}_{taskId} marker's rolling 24h window (Firestore
+    // rules can't compute calendar dates to enforce a real "once per
+    // calendar day" — see taskCooldowns.ts).
+    match /taskSubmissions/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.userName is string && request.resource.data.userName.size() > 0
+        && request.resource.data.taskId is string
+        && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.status == "active"
+        && request.time >= get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.startDate
+        && (get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.endDate == null
+            || request.time <= get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.endDate)
+        && request.resource.data.taskTitle == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.title
+        && request.resource.data.rewardAmount == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.rewardAmount
+        && request.resource.data.frequency == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.frequency
+        && taskEligible(request.auth.uid, request.resource.data.taskId)
+        && request.resource.data.textResponse is string && request.resource.data.textResponse.size() > 0
+        && (get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.proofRequired == false
+            || (request.resource.data.proofScreenshotUrl is string && request.resource.data.proofScreenshotUrl.size() > 0))
+        && (request.resource.data.proofScreenshotUrl == null || request.resource.data.proofScreenshotUrl is string)
+        && request.resource.data.status == "pending"
+        && request.resource.data.reviewedBy == null
+        && (
+             (request.resource.data.frequency == "one_time"
+               && id == request.resource.data.taskId + "_" + request.auth.uid)
+             || (request.resource.data.frequency == "daily"
+               && (!exists(/databases/$(database)/documents/taskCooldowns/$(request.auth.uid + "_" + request.resource.data.taskId))
+                   || request.time > get(/databases/$(database)/documents/taskCooldowns/$(request.auth.uid + "_" + request.resource.data.taskId)).data.lastSubmittedAt + duration.value(24, "h")))
+           );
+      allow update: if isAdmin() && adminCanReviewRequest();
+      allow delete: if false;
+    }
+
+    // The rolling-24h-window marker for daily task resubmission — mirrors
+    // users/{uid}.lastDailyClaimAt's role but per (uid, taskId) pair, since
+    // there can be many different daily tasks. Written by the same client
+    // transaction as the taskSubmission it accompanies.
+    match /taskCooldowns/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && id == request.auth.uid + "_" + request.resource.data.taskId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.taskId is string
+        && request.resource.data.lastSubmittedAt == request.time;
+      allow update: if isSignedIn()
+        && id == request.auth.uid + "_" + request.resource.data.taskId
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.taskId == resource.data.taskId
+        && request.time > resource.data.lastSubmittedAt + duration.value(24, "h")
+        && request.resource.data.lastSubmittedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastSubmittedAt"]);
+      allow delete: if false;
+    }
+
+    // Admin-managed salary/level bonus tier definitions (Milestone 12). No
+    // tier is seeded by default — every threshold and the bonus amount
+    // itself is admin-entered, never hardcoded. Any signed-in user may read
+    // them (needed to show progress toward not-yet-met tiers).
+    match /bonusTiers/{tierId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin()
+        && request.resource.data.id == tierId
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.requiredDirectReferrals is number && request.resource.data.requiredDirectReferrals >= 0
+        && request.resource.data.requiredTotalTeam is number && request.resource.data.requiredTotalTeam >= 0
+        && request.resource.data.requiredActiveTeam is number && request.resource.data.requiredActiveTeam >= 0
+        && isValidPackageRef(request.resource.data.requiredPackageId)
+        && request.resource.data.bonusAmount is number && request.resource.data.bonusAmount > 0
+        && request.resource.data.recurrence in ["one_time", "recurring"]
+        && request.resource.data.isActive is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.requiredDirectReferrals is number && request.resource.data.requiredDirectReferrals >= 0
+        && request.resource.data.requiredTotalTeam is number && request.resource.data.requiredTotalTeam >= 0
+        && request.resource.data.requiredActiveTeam is number && request.resource.data.requiredActiveTeam >= 0
+        && isValidPackageRef(request.resource.data.requiredPackageId)
+        && request.resource.data.bonusAmount is number && request.resource.data.bonusAmount > 0
+        && request.resource.data.recurrence in ["one_time", "recurring"]
+        && request.resource.data.isActive is bool;
+      allow delete: if false;
+    }
+
+    // A user's self-submitted bonus claim. directReferralsAtClaim/
+    // totalTeamAtClaim/activeTeamAtClaim are client-reported and checked here
+    // only for basic shape and for meeting the tier's own thresholds — NOT
+    // proof the numbers are real, since Firestore rules cannot run the
+    // aggregate queries needed to verify a team count. The actual
+    // authoritative eligibility check happens in approveBonusClaim, which
+    // re-fetches the claimant's live team aggregates before crediting
+    // anything (see features/admin/lib/bonus-actions.ts). Duplicate
+    // one-time payment is prevented at approval time via bonusAwards, not
+    // here — this only stops piling up new claims once one is already paid.
+    match /bonusClaims/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.userName is string && request.resource.data.userName.size() > 0
+        && request.resource.data.tierId is string
+        && get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.isActive == true
+        && request.resource.data.tierName == get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.name
+        && request.resource.data.bonusAmount == get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.bonusAmount
+        && request.resource.data.recurrence == get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.recurrence
+        && request.resource.data.directReferralsAtClaim is number
+        && request.resource.data.directReferralsAtClaim >= get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.requiredDirectReferrals
+        && request.resource.data.totalTeamAtClaim is number
+        && request.resource.data.totalTeamAtClaim >= get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.requiredTotalTeam
+        && request.resource.data.activeTeamAtClaim is number
+        && request.resource.data.activeTeamAtClaim >= get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.requiredActiveTeam
+        && bonusPackageEligible(request.auth.uid, request.resource.data.tierId)
+        && (request.resource.data.packageIdAtClaim == null || request.resource.data.packageIdAtClaim is string)
+        && (get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.recurrence == "recurring"
+            || !exists(/databases/$(database)/documents/bonusAwards/$(request.auth.uid + "_" + request.resource.data.tierId)))
+        && request.resource.data.status == "pending"
+        && request.resource.data.reviewedBy == null;
+      allow update: if isAdmin() && adminCanReviewRequest();
+      allow delete: if false;
+    }
+
+    // The actual "never pay the same one-time bonus twice" guarantee: one
+    // doc per (uid, tierId), doc id `${uid}_${tierId}`, created only by
+    // approveBonusClaim inside the same transaction that credits the
+    // wallet, only for "one_time" tiers. Its existence alone is checked
+    // (via a direct transaction.get, not a query) before any future
+    // one-time claim for that tier can even be approved.
+    match /bonusAwards/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAdmin()
+        && id == request.resource.data.uid + "_" + request.resource.data.tierId
+        && request.resource.data.uid is string
+        && request.resource.data.tierId is string
+        && request.resource.data.claimId is string
+        && request.resource.data.amount is number && request.resource.data.amount > 0;
+      allow update, delete: if false;
+    }
+
+    // The admin-authored notification broadcast content (Milestone 13) — one
+    // doc per "send" action. Any signed-in user may read the list (needed
+    // for admin history and, in principle, transparency); only an admin may
+    // create one. Update is intentionally narrow: only isActive can be
+    // toggled (a soft-retract), never the audience or content after the
+    // fact — the actual fan-out to recipients (userNotifications below) is
+    // a separate, immutable, already-delivered record.
+    match /announcements/{id} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin()
+        && request.resource.data.title is string && request.resource.data.title.size() > 0
+        && request.resource.data.body is string && request.resource.data.body.size() > 0
+        && request.resource.data.isActive == true
+        && request.resource.data.audienceType in ["all", "active_package", "selected"]
+        && request.resource.data.selectedUids is list
+        && request.resource.data.recipientCount is number && request.resource.data.recipientCount >= 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdByName is string;
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isActive", "updatedAt"])
+        && request.resource.data.isActive is bool;
+      allow delete: if false;
+    }
+
+    // One doc per (announcement, recipient) pair, doc id
+    // `${announcementId}_${uid}` — deterministic so a re-run fan-out can
+    // never double-deliver the same broadcast to the same user. Created
+    // only by the admin send action; the recipient may only ever flip their
+    // own `read`/`readAt`, nothing else (identity/content is frozen).
+    match /userNotifications/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isAdmin()
+        && id == request.resource.data.announcementId + "_" + request.resource.data.uid
+        && request.resource.data.uid is string
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.uid))
+        && request.resource.data.announcementId is string
+        && exists(/databases/$(database)/documents/announcements/$(request.resource.data.announcementId))
+        && request.resource.data.title is string
+        && request.resource.data.body is string
+        && request.resource.data.read == false
+        && request.resource.data.readAt == null;
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read", "readAt"])
+        && request.resource.data.read == true
+        && request.resource.data.readAt == request.time;
+      allow delete: if false;
+    }
+
+    // Package definitions (price, earning/withdrawal limits, duration,
+    // features, active status) are fully admin-managed. Referral payout
+    // rates are NOT part of a package — see referralLevelSettings above.
+    // Any signed-in user may read them to know their own limits or browse
+    // purchasable packages. Packages are disabled (isActive: false), never
+    // deleted, so users already assigned to one never point at a missing
+    // document.
+    match /packages/{packageId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin()
+        && request.resource.data.id == packageId
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.price is number && request.resource.data.price >= 0
+        && request.resource.data.dailyEarning is number && request.resource.data.dailyEarning >= 0
+        && request.resource.data.withdrawalLimitPerRequest is number && request.resource.data.withdrawalLimitPerRequest >= 0
+        && request.resource.data.dailyWithdrawalLimit is number && request.resource.data.dailyWithdrawalLimit >= 0
+        && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.features is list
+        && request.resource.data.isActive is bool;
+      allow update: if isAdmin()
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.name is string && request.resource.data.name.size() > 0
+        && request.resource.data.price is number && request.resource.data.price >= 0
+        && request.resource.data.dailyEarning is number && request.resource.data.dailyEarning >= 0
+        && request.resource.data.withdrawalLimitPerRequest is number && request.resource.data.withdrawalLimitPerRequest >= 0
+        && request.resource.data.dailyWithdrawalLimit is number && request.resource.data.dailyWithdrawalLimit >= 0
+        && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.features is list
+        && request.resource.data.isActive is bool;
+      allow delete: if false;
+    }
+
+    // Append-only admin audit trail. Never client-editable, never deletable.
+    match /activityLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.action is string && request.resource.data.action.size() > 0
+        && request.resource.data.targetType is string
+        && request.resource.data.targetId is string
+        && request.resource.data.details is string;
+      allow update, delete: if false;
+    }
+
+    // Singleton global config docs (e.g. the daily-claims kill switch, the
+    // Official Channel links/banner). Any signed-in user may read; only an
+    // admin may write. Each known doc id validates its own shape — this
+    // stays a single match block (rather than one per doc) since Firestore
+    // rules match on collection path, not individual document ids.
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && (
+        (settingId == "global" && request.resource.data.dailyClaimsEnabled is bool)
+        || (settingId == "officialChannel"
+          && (request.resource.data.telegramUrl == null || request.resource.data.telegramUrl is string)
+          && (request.resource.data.whatsappUrl == null || request.resource.data.whatsappUrl is string)
+          && (request.resource.data.youtubeUrl == null || request.resource.data.youtubeUrl is string)
+          && (request.resource.data.websiteUrl == null || request.resource.data.websiteUrl is string)
+          && (request.resource.data.bannerImageUrl == null || request.resource.data.bannerImageUrl is string)
+          && (request.resource.data.bannerText == null || request.resource.data.bannerText is string))
+      );
+    }
+  }
+}

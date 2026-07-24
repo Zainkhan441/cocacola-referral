@@ -1,0 +1,17 @@
+export const ADMIN_NAV_LINKS = [
+  { label: "Dashboard", href: "/admin" },
+  { label: "Packages", href: "/admin/packages" },
+  { label: "Deposits", href: "/admin/deposits" },
+  { label: "Withdrawals", href: "/admin/withdrawals" },
+  { label: "Users", href: "/admin/users" },
+  { label: "Earnings", href: "/admin/earnings" },
+  { label: "Referral Settings", href: "/admin/referral-settings" },
+  { label: "Referral Logs", href: "/admin/referral-logs" },
+  { label: "Tasks", href: "/admin/tasks" },
+  { label: "Task Submissions", href: "/admin/task-submissions" },
+  { label: "Bonus Tiers", href: "/admin/bonus-tiers" },
+  { label: "Bonus Claims", href: "/admin/bonus-claims" },
+  { label: "Notifications", href: "/admin/notifications" },
+  { label: "Channel", href: "/admin/channel" },
+  { label: "Activity", href: "/admin/activity" },
+] as const;
