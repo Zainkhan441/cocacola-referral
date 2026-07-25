@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -176,7 +177,10 @@ export default function GuidePage() {
         {!gateLoading && (
           <>
             <div>
-              <h1 className="text-2xl font-bold text-white">Guide & help center</h1>
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-6 w-6 text-brand-light" aria-hidden="true" />
+                <h1 className="text-2xl font-bold text-white">Guide & help center</h1>
+              </div>
               <p className="text-sm text-white/50">
                 Everything you need to know about earning, referring, and getting paid.
               </p>

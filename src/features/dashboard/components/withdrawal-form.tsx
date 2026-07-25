@@ -129,6 +129,11 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
             ? `You need at least ${formatCurrency(currentBalanceMinWithdraw)} in Current Balance to withdraw.`
             : null
         }
+        progress={
+          profile.currentBalance < currentBalanceMinWithdraw
+            ? { have: profile.currentBalance, need: currentBalanceMinWithdraw, unit: "currency" }
+            : null
+        }
       />
       <SingleWithdrawalForm
         title="Withdraw Coca-Cola Earning"
@@ -141,10 +146,17 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
             ? `You need Level ${cocaColaRequiredLevel} (${cocaColaRequiredLevel} direct active referrals) to withdraw Coca-Cola Earning. You currently have ${directActiveReferrals}.`
             : null
         }
+        progress={
+          directActiveReferrals < cocaColaRequiredLevel
+            ? { have: directActiveReferrals, need: cocaColaRequiredLevel, unit: "count" }
+            : null
+        }
       />
     </div>
   );
 }
+
+type BlockedProgress = { have: number; need: number; unit: "currency" | "count" };
 
 type SingleWithdrawalFormProps = {
   title: string;
@@ -153,6 +165,7 @@ type SingleWithdrawalFormProps = {
   minAmount: number;
   maxPerRequest: number | null;
   blockedReason: string | null;
+  progress?: BlockedProgress | null;
 };
 
 type FieldErrors = {
@@ -168,6 +181,7 @@ function SingleWithdrawalForm({
   minAmount,
   maxPerRequest,
   blockedReason,
+  progress,
 }: SingleWithdrawalFormProps) {
   const { user } = useAuth();
 
@@ -230,7 +244,26 @@ function SingleWithdrawalForm({
       </div>
 
       {blockedReason ? (
-        <Alert variant="info">{blockedReason}</Alert>
+        <div className="flex flex-col gap-3">
+          <Alert variant="info">{blockedReason}</Alert>
+          {progress && (
+            <div className="flex flex-col gap-1.5">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-brand transition-all"
+                  style={{
+                    width: `${Math.min(100, Math.round((progress.have / Math.max(progress.need, 1)) * 100))}%`,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-white/50">
+                {progress.unit === "currency"
+                  ? `${formatCurrency(progress.have)} of ${formatCurrency(progress.need)}`
+                  : `${progress.have} of ${progress.need}`}
+              </p>
+            </div>
+          )}
+        </div>
       ) : (
         <>
           <p className="text-xs text-white/50">

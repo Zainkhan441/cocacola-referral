@@ -26,6 +26,8 @@ export type TransactionType =
   | "bonus_reward"
   | "admin_adjustment";
 
+export type TransactionTypeFilter = TransactionType | "all";
+
 export type TransactionStatus = "pending" | "completed" | "failed";
 
 // Which of the four wallets this entry actually moved money into/out of —
@@ -83,6 +85,32 @@ export function recentTransactionsQuery(
   );
 }
 
+// A paginated variant of recentTransactionsQuery for the user's own full
+// Transaction History (Wallet page), not just the 5-item dashboard preview.
+// The unfiltered branch reuses the same (uid asc, createdAt desc) composite
+// index as recentTransactionsQuery; the type-filtered branch requires an
+// additional (uid asc, type asc, createdAt desc) composite — see
+// firestore.indexes.json.
+export function myTransactionsPageQuery(
+  db: Firestore,
+  uid: string,
+  typeFilter: TransactionTypeFilter,
+  cursor: QueryDocumentSnapshot<TransactionDoc> | null,
+): Query<TransactionDoc> {
+  const base =
+    typeFilter === "all"
+      ? query(transactionsCollection(db), where("uid", "==", uid), orderBy("createdAt", "desc"))
+      : query(
+          transactionsCollection(db),
+          where("uid", "==", uid),
+          where("type", "==", typeFilter),
+          orderBy("createdAt", "desc"),
+        );
+  return cursor
+    ? query(base, startAfter(cursor), limit(TRANSACTIONS_PAGE_SIZE))
+    : query(base, limit(TRANSACTIONS_PAGE_SIZE));
+}
+
 // --- Admin dashboard aggregates ---
 
 export function transactionsByTypeQuery(
@@ -103,8 +131,6 @@ export function dailyRewardTransactionsSinceQuery(db: Firestore, sinceMs: number
 }
 
 // --- Admin Financial History (full ledger browse) ---
-
-export type TransactionTypeFilter = TransactionType | "all";
 
 // Requires a composite index (type asc, createdAt desc) for the filtered
 // branch — see firestore.indexes.json. The unfiltered branch only needs the

@@ -70,7 +70,10 @@ export default function NotificationsPage() {
           <>
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-2xl font-bold text-white">Notifications</h1>
+                <div className="flex items-center gap-2">
+                  <Bell className="h-6 w-6 text-brand-light" aria-hidden="true" />
+                  <h1 className="text-2xl font-bold text-white">Notifications</h1>
+                </div>
                 <p className="text-sm text-white/50">Your complete notification history.</p>
               </div>
               {hasUnread && (

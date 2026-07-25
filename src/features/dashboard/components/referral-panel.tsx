@@ -50,8 +50,8 @@ export function ReferralPanel({ profile }: ReferralPanelProps) {
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 border-t border-white/10 pt-5">
-        <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:grid sm:grid-cols-3">
+        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:gap-1">
           <p className="text-xs font-medium uppercase tracking-wide text-white/50">
             Total referrals
           </p>
@@ -59,7 +59,7 @@ export function ReferralPanel({ profile }: ReferralPanelProps) {
             {profile.totalReferrals.toLocaleString()}
           </p>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:gap-1">
           <p className="text-xs font-medium uppercase tracking-wide text-white/50">
             Active referrals
           </p>
@@ -67,7 +67,7 @@ export function ReferralPanel({ profile }: ReferralPanelProps) {
             {profile.activeReferrals.toLocaleString()}
           </p>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between sm:flex-col sm:items-start sm:gap-1">
           <p className="text-xs font-medium uppercase tracking-wide text-white/50">
             Referral earnings
           </p>
@@ -99,7 +99,7 @@ export function ReferralPanelSkeleton() {
         <Skeleton className="h-3 w-28" />
         <Skeleton className="h-10 w-full" />
       </div>
-      <div className="grid grid-cols-3 gap-3 border-t border-white/10 pt-5">
+      <div className="flex flex-col gap-3 border-t border-white/10 pt-5 sm:grid sm:grid-cols-3">
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />

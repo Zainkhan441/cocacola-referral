@@ -2,22 +2,44 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Users } from "lucide-react";
+import { Wallet as WalletIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
-import { useTeamSummary } from "@/features/user/hooks/use-team-summary";
-import { TeamSummaryCards } from "@/features/team/components/team-summary-cards";
-import { TeamLevelBreakdown } from "@/features/team/components/team-level-breakdown";
-import { TeamMemberList } from "@/features/team/components/team-member-list";
-import { LevelProgressCard } from "@/features/team/components/level-progress-card";
+import {
+  WalletSummary,
+  WalletSummarySkeleton,
+} from "@/features/dashboard/components/wallet-summary";
+import {
+  DepositForm,
+  DepositFormSkeleton,
+} from "@/features/dashboard/components/deposit-form";
+import {
+  WithdrawalForm,
+  WithdrawalFormSkeleton,
+} from "@/features/dashboard/components/withdrawal-form";
+import {
+  DepositHistory,
+  DepositHistorySkeleton,
+} from "@/features/dashboard/components/deposit-history";
+import {
+  WithdrawalHistory,
+  WithdrawalHistorySkeleton,
+} from "@/features/dashboard/components/withdrawal-history";
+import { TransactionHistory } from "@/features/wallet/components/transaction-history";
 
-export default function TeamPage() {
+// The wallet home: balances, deposit, withdraw, and both histories in one
+// place — relocated here from the Dashboard (Milestone 20) purely to give
+// the daily-use pages (Dashboard/Work Room/Team/Wallet) a clean, single
+// responsibility each. Every component here is reused completely unchanged;
+// none of the deposit/withdrawal business logic is touched by this move.
+export default function WalletPage() {
   const { user, loading: authLoading, configured } = useAuth();
   const router = useRouter();
   const {
@@ -26,8 +48,6 @@ export default function TeamPage() {
     error: profileError,
     retry: retryProfile,
   } = useUserProfile();
-  const { summary, loading: summaryLoading, error: summaryError, retry: retrySummary } =
-    useTeamSummary();
 
   useEffect(() => {
     if (!configured || authLoading) return;
@@ -62,8 +82,17 @@ export default function TeamPage() {
         )}
 
         {!gateLoading && profileLoading && (
-          <div className="flex min-h-[60vh] items-center justify-center">
-            <Spinner className="h-6 w-6" />
+          <div className="flex flex-col gap-6">
+            <WalletSummarySkeleton />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <DepositFormSkeleton />
+              <WithdrawalFormSkeleton />
+            </div>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <DepositHistorySkeleton />
+              <WithdrawalHistorySkeleton />
+            </div>
+            <Skeleton className="h-72 w-full rounded-2xl" />
           </div>
         )}
 
@@ -84,24 +113,27 @@ export default function TeamPage() {
           <>
             <div>
               <div className="flex items-center gap-2">
-                <Users className="h-6 w-6 text-brand-light" aria-hidden="true" />
-                <h1 className="text-2xl font-bold text-white">My team</h1>
+                <WalletIcon className="h-6 w-6 text-brand-light" aria-hidden="true" />
+                <h1 className="text-2xl font-bold text-white">Wallet</h1>
               </div>
               <p className="text-sm text-white/50">
-                Everyone in your 12-level referral network, and how your team is growing.
+                Your balances, deposits, and withdrawals in one place.
               </p>
             </div>
 
-            <LevelProgressCard />
+            <WalletSummary profile={profile} />
 
-            <TeamSummaryCards
-              summary={summary}
-              loading={summaryLoading}
-              error={summaryError}
-              retry={retrySummary}
-            />
-            <TeamLevelBreakdown summary={summary} loading={summaryLoading} />
-            <TeamMemberList />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <DepositForm />
+              <WithdrawalForm profile={profile} />
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <DepositHistory />
+              <WithdrawalHistory />
+            </div>
+
+            <TransactionHistory />
           </>
         )}
       </main>

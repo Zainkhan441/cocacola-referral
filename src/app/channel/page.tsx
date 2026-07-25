@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Send, MessageCircle, Video, Globe, Mail, Phone, MapPin } from "lucide-react";
+import { Send, MessageCircle, Video, Globe, Mail, Phone, MapPin, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -61,7 +61,10 @@ export default function ChannelPage() {
         {!gateLoading && (
           <>
             <div>
-              <h1 className="text-2xl font-bold text-white">Official channel</h1>
+              <div className="flex items-center gap-2">
+                <Megaphone className="h-6 w-6 text-brand-light" aria-hidden="true" />
+                <h1 className="text-2xl font-bold text-white">Official channel</h1>
+              </div>
               <p className="text-sm text-white/50">
                 Stay connected — join our official channels for updates and support.
               </p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -34,6 +35,17 @@ export default function BonusesPage() {
 
   const activeTiers = useMemo(() => tiers.filter((tier) => tier.isActive), [tiers]);
   const tierIds = useMemo(() => activeTiers.map((tier) => tier.id), [activeTiers]);
+  // Same underlying tier engine either way — "Salary" is just how a
+  // recurring tier is framed, "Bonus" how a one_time tier is framed. Purely
+  // a display split, not a second system.
+  const salaryTiers = useMemo(
+    () => activeTiers.filter((tier) => tier.recurrence === "recurring"),
+    [activeTiers],
+  );
+  const oneTimeBonusTiers = useMemo(
+    () => activeTiers.filter((tier) => tier.recurrence === "one_time"),
+    [activeTiers],
+  );
   const {
     awardedTierIds,
     pendingTierIds,
@@ -122,7 +134,10 @@ export default function BonusesPage() {
         {!gateLoading && !profileLoading && !profileError && profile && (
           <>
             <div>
-              <h1 className="text-2xl font-bold text-white">Salary & level bonuses</h1>
+              <div className="flex items-center gap-2">
+                <Trophy className="h-6 w-6 text-brand-light" aria-hidden="true" />
+                <h1 className="text-2xl font-bold text-white">Salary & level bonuses</h1>
+              </div>
               <p className="text-sm text-white/50">
                 Earn bonuses as your team grows. Eligibility is checked against your live team data.
               </p>
@@ -176,20 +191,54 @@ export default function BonusesPage() {
                 </div>
               )}
 
-            {!tiersLoading && !tiersError && !summaryLoading && !statusLoading && activeTiers.length > 0 && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {activeTiers.map((tier) => (
-                  <BonusTierCard
-                    key={tier.id}
-                    tier={tier}
-                    summary={summary}
-                    packageId={profile.package}
-                    awarded={awardedTierIds.has(tier.id)}
-                    pending={pendingTierIds.has(tier.id)}
-                    submitting={claimingId === tier.id}
-                    onClaim={() => handleClaim(tier.id)}
-                  />
-                ))}
+            {!tiersLoading && !tiersError && !summaryLoading && !statusLoading && salaryTiers.length > 0 && (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Salary</h2>
+                  <p className="text-sm text-white/50">
+                    Recurring income for maintaining your team size — claimable again each
+                    time you re-qualify.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {salaryTiers.map((tier) => (
+                    <BonusTierCard
+                      key={tier.id}
+                      tier={tier}
+                      summary={summary}
+                      packageId={profile.package}
+                      awarded={awardedTierIds.has(tier.id)}
+                      pending={pendingTierIds.has(tier.id)}
+                      submitting={claimingId === tier.id}
+                      onClaim={() => handleClaim(tier.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!tiersLoading && !tiersError && !summaryLoading && !statusLoading && oneTimeBonusTiers.length > 0 && (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Bonuses</h2>
+                  <p className="text-sm text-white/50">
+                    One-time milestone rewards for reaching a team-size threshold.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {oneTimeBonusTiers.map((tier) => (
+                    <BonusTierCard
+                      key={tier.id}
+                      tier={tier}
+                      summary={summary}
+                      packageId={profile.package}
+                      awarded={awardedTierIds.has(tier.id)}
+                      pending={pendingTierIds.has(tier.id)}
+                      submitting={claimingId === tier.id}
+                      onClaim={() => handleClaim(tier.id)}
+                    />
+                  ))}
+                </div>
               </div>
             )}
 

@@ -25,36 +25,19 @@ import {
   RecentReferralActivity,
   RecentReferralActivitySkeleton,
 } from "@/features/dashboard/components/recent-referral-activity";
-import {
-  DepositForm,
-  DepositFormSkeleton,
-} from "@/features/dashboard/components/deposit-form";
-import {
-  WithdrawalForm,
-  WithdrawalFormSkeleton,
-} from "@/features/dashboard/components/withdrawal-form";
-import {
-  DepositHistory,
-  DepositHistorySkeleton,
-} from "@/features/dashboard/components/deposit-history";
-import {
-  WithdrawalHistory,
-  WithdrawalHistorySkeleton,
-} from "@/features/dashboard/components/withdrawal-history";
-import {
-  DailyClaimCard,
-  DailyClaimCardSkeleton,
-} from "@/features/dashboard/components/daily-claim-card";
-import {
-  ClaimHistory,
-  ClaimHistorySkeleton,
-} from "@/features/dashboard/components/claim-history";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
 import {
   PackageStatusCard,
   PackageStatusCardSkeleton,
 } from "@/features/dashboard/components/package-status-card";
+import { DashboardQuickLinks } from "@/features/dashboard/components/dashboard-quick-links";
 
+// The home overview: balances, package status, referral snapshot, one-tap
+// shortcuts into the daily-use pages, and a recent-activity feed. Milestone
+// 20 moved the full Deposit/Withdraw forms + histories to /wallet and the
+// daily earning ritual + its history to /work-room, so this page stays a
+// quick "how am I doing" snapshot instead of a single very long page — no
+// business logic changed, every component below is reused exactly as built.
 export default function DashboardPage() {
   const { user, loading: authLoading, configured } = useAuth();
   const router = useRouter();
@@ -102,16 +85,6 @@ export default function DashboardPage() {
             <WalletSummarySkeleton />
             <PackageStatusCardSkeleton />
             <ReferralPanelSkeleton />
-            <DailyClaimCardSkeleton />
-            <div className="grid gap-6 lg:grid-cols-2">
-              <DepositFormSkeleton />
-              <WithdrawalFormSkeleton />
-            </div>
-            <div className="grid gap-6 lg:grid-cols-3">
-              <DepositHistorySkeleton />
-              <WithdrawalHistorySkeleton />
-              <ClaimHistorySkeleton />
-            </div>
             <div className="grid gap-6 lg:grid-cols-2">
               <RecentTransactionsSkeleton />
               <RecentReferralActivitySkeleton />
@@ -139,20 +112,9 @@ export default function DashboardPage() {
             </h1>
 
             <WalletSummary profile={profile} />
+            <DashboardQuickLinks />
             <PackageStatusCard profile={profile} />
             <ReferralPanel profile={profile} />
-            <DailyClaimCard profile={profile} />
-
-            <div className="grid gap-6 lg:grid-cols-2">
-              <DepositForm />
-              <WithdrawalForm profile={profile} />
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              <DepositHistory />
-              <WithdrawalHistory />
-              <ClaimHistory />
-            </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
               <RecentTransactions />

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -126,7 +127,10 @@ export default function TasksPage() {
         {!gateLoading && !profileLoading && !profileError && profile && (
           <>
             <div>
-              <h1 className="text-2xl font-bold text-white">Tasks</h1>
+              <div className="flex items-center gap-2">
+                <ClipboardList className="h-6 w-6 text-brand-light" aria-hidden="true" />
+                <h1 className="text-2xl font-bold text-white">Tasks</h1>
+              </div>
               <p className="text-sm text-white/50">
                 Complete tasks to earn extra rewards. Submissions are reviewed before payout.
               </p>
