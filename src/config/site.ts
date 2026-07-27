@@ -12,7 +12,7 @@ function resolveSiteUrl(): string {
 }
 
 export const siteConfig = {
-  name: "Coca Rewards",
+  name: "CocaColaEarn",
   tagline: "Refer. Earn. Repeat.",
   description:
     "A referral and earning platform where every connection you make pays you back.",

@@ -92,7 +92,7 @@ export default function PackagesPage() {
     <div className="min-h-screen bg-black">
       <AppHeader />
 
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:py-14">
+      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10 sm:py-14">
         {gateLoading && (
           <div className="flex min-h-[60vh] items-center justify-center">
             <Spinner className="h-6 w-6" />
@@ -100,9 +100,9 @@ export default function PackagesPage() {
         )}
 
         {!gateLoading && profileLoading && (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col items-center gap-6">
             {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-80 w-full rounded-2xl" />
+              <Skeleton key={index} className="h-80 w-full max-w-md rounded-2xl" />
             ))}
           </div>
         )}
@@ -146,9 +146,9 @@ export default function PackagesPage() {
             )}
 
             {packagesLoading && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col items-center gap-6">
                 {Array.from({ length: 3 }).map((_, index) => (
-                  <Skeleton key={index} className="h-80 w-full rounded-2xl" />
+                  <Skeleton key={index} className="h-80 w-full max-w-md rounded-2xl" />
                 ))}
               </div>
             )}
@@ -169,7 +169,7 @@ export default function PackagesPage() {
             )}
 
             {!packagesLoading && !packagesError && packages.length > 0 && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex flex-col items-center gap-6">
                 {packages.map((pkg) => (
                   <PackageCard
                     key={pkg.id}

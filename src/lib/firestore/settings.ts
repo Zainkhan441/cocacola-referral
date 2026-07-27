@@ -6,6 +6,7 @@ const GLOBAL_SETTINGS_ID = "global";
 const OFFICIAL_CHANNEL_SETTINGS_ID = "officialChannel";
 const WITHDRAWAL_RULES_SETTINGS_ID = "withdrawalRules";
 const PAYMENT_SETTINGS_ID = "paymentDetails";
+const TASK_REWARD_SETTINGS_ID = "taskRewards";
 
 // A singleton config document, admin-managed. Absence of this document
 // means every flag defaults to its "on" state — see firestore.rules
@@ -149,6 +150,42 @@ export type WithdrawalRulesInput = {
 
 export async function setWithdrawalRules(db: Firestore, input: WithdrawalRulesInput): Promise<void> {
   await setDoc(withdrawalRulesDocRef(db), {
+    ...input,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// A fifth singleton doc in the same `settings` collection — the one global
+// flat reward paid per completed ad-watch task, read live at claim time by
+// both the admin form (to show the current value) and firestore.rules'
+// task-reward claim branch (to compute the trusted amount) — never copied
+// onto a task or user document, so changing this value takes effect
+// immediately for every existing and future task. Absence of this document
+// falls back to the platform default (Rs 5) shown by the admin form; the
+// very first "Save" simply persists it for real, same pattern as
+// paymentDetails above.
+export const DEFAULT_TASK_REWARD_PER_AD = 5;
+
+export type TaskRewardSettingsDoc = {
+  rewardPerAd: number;
+  updatedAt: Timestamp;
+};
+
+export function taskRewardSettingsDocRef(db: Firestore) {
+  return doc(typedCollection<TaskRewardSettingsDoc>(db, SETTINGS_PATH), TASK_REWARD_SETTINGS_ID);
+}
+
+export async function getTaskRewardSettings(db: Firestore): Promise<TaskRewardSettingsDoc | null> {
+  const snapshot = await getDoc(taskRewardSettingsDocRef(db));
+  return snapshot.exists() ? snapshot.data() : null;
+}
+
+export type TaskRewardSettingsInput = {
+  rewardPerAd: number;
+};
+
+export async function setTaskRewardSettings(db: Firestore, input: TaskRewardSettingsInput): Promise<void> {
+  await setDoc(taskRewardSettingsDocRef(db), {
     ...input,
     updatedAt: serverTimestamp(),
   });

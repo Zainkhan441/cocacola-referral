@@ -11,21 +11,20 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { typedCollection } from "@/lib/firestore/converter";
-import type { TaskFrequency } from "@/lib/firestore/tasks";
 
 const TASK_SUBMISSIONS_PATH = "taskSubmissions";
 export const TASK_SUBMISSIONS_PAGE_SIZE = 20;
 
 export type TaskSubmissionStatus = "pending" | "approved" | "rejected";
+// This legacy collection is frozen (see tasks.ts) — kept local since
+// TaskDoc no longer has a frequency field at all.
+export type TaskFrequency = "one_time" | "daily";
 
-// A "one_time" task's submission doc id is deterministic (`${taskId}_${uid}`,
-// see oneTimeTaskSubmissionDocRef) — Firestore's own create-vs-update
-// distinction (a `create` can only ever succeed once per doc path; every
-// later attempt at that same path is evaluated as an `update`, which
-// firestore.rules never allows a plain user to do here) is the actual
-// duplicate-prevention mechanism, not application logic. A "daily" task's
-// submission uses an auto-id instead (it's meant to repeat) and is gated by
-// the sibling taskCooldowns/{uid}_{taskId} document's rolling 24h window.
+// Frozen, read/admin-review only — firestore.rules blocks every new create
+// on this collection (see taskSubmissions/{id} there), and the collection
+// is empty in production. This type and the queries below exist purely so
+// the admin Task Submissions page can still render/review any
+// pre-migration history without a code path that could ever add to it.
 export type TaskSubmissionDoc = {
   taskId: string;
   // Denormalized from the task at submission time — an honest record of
@@ -52,38 +51,6 @@ export function taskSubmissionsCollection(db: Firestore) {
 
 export function taskSubmissionDocRef(db: Firestore, submissionId: string) {
   return doc(taskSubmissionsCollection(db), submissionId);
-}
-
-export function oneTimeTaskSubmissionDocRef(db: Firestore, taskId: string, uid: string) {
-  return doc(taskSubmissionsCollection(db), `${taskId}_${uid}`);
-}
-
-export function newTaskSubmissionRef(db: Firestore) {
-  return doc(taskSubmissionsCollection(db));
-}
-
-// --- A user's own submission history ---
-
-// Requires a composite index (uid asc, createdAt desc) — see firestore.indexes.json.
-export function myTaskSubmissionsPageQuery(
-  db: Firestore,
-  uid: string,
-  cursor: QueryDocumentSnapshot<TaskSubmissionDoc> | null,
-): Query<TaskSubmissionDoc> {
-  return cursor
-    ? query(
-        taskSubmissionsCollection(db),
-        where("uid", "==", uid),
-        orderBy("createdAt", "desc"),
-        startAfter(cursor),
-        limit(TASK_SUBMISSIONS_PAGE_SIZE),
-      )
-    : query(
-        taskSubmissionsCollection(db),
-        where("uid", "==", uid),
-        orderBy("createdAt", "desc"),
-        limit(TASK_SUBMISSIONS_PAGE_SIZE),
-      );
 }
 
 // --- Admin review queue ---

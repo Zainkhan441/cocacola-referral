@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Briefcase, CheckCircle2 } from "lucide-react";
+import { Briefcase } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -11,22 +10,19 @@ import { useUserProfile } from "@/features/user/hooks/use-user-profile";
 import { usePackageLimits } from "@/features/wallet/hooks/use-package-limits";
 import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { useAvailableTasks } from "@/features/tasks/hooks/use-available-tasks";
-import { useDailyTaskQuota } from "@/features/tasks/hooks/use-daily-task-quota";
+import { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
+import { useTaskRewardSettings } from "@/features/admin/hooks/use-task-reward-settings";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
-import { DailyClaimCard, DailyClaimCardSkeleton } from "@/features/dashboard/components/daily-claim-card";
 import { ClaimHistory } from "@/features/dashboard/components/claim-history";
-import { TaskCard } from "@/features/tasks/components/task-card";
-import { TaskSubmissionForm } from "@/features/tasks/components/task-submission-form";
-import type { TaskDoc } from "@/lib/firestore/tasks";
+import { TaskRotationList } from "@/features/tasks/components/task-rotation-list";
+import { DEFAULT_TASK_REWARD_PER_AD } from "@/lib/firestore/settings";
 
-// The daily ritual home: today's automatic Coca-Cola earning status (passive
-// display only — no claim button, that rule is unchanged from Milestone 18)
-// plus today's task quota, both reusing their existing engines/components
-// exactly as built. This page adds no new business logic — it only composes
-// DailyClaimCard, useAvailableTasks, and useDailyTaskQuota into one screen so
-// a user has a single daily destination instead of two separate pages.
+// The daily ritual home: today's assigned ad tasks and the bundled reward
+// they unlock, plus the claim history log — reuses the exact same
+// useDailyTasks/TaskRotationList engine as the Tasks page so there's a
+// single source of truth for "today's status" shown in two places.
 export default function WorkRoomPage() {
   const { user, loading: authLoading, configured } = useAuth();
   const {
@@ -35,36 +31,16 @@ export default function WorkRoomPage() {
     error: profileError,
     retry: retryProfile,
   } = useUserProfile();
-  const { packageInfo, loading: packageLoading } = usePackageLimits(profile?.package ?? null);
+  const { packageInfo } = usePackageLimits(profile?.package ?? null);
   const { tasks, loading: tasksLoading, error: tasksError, retry: retryTasks } = useAvailableTasks();
-  const { usedToday, loading: quotaLoading } = useDailyTaskQuota();
+  const { settings: rewardSettings } = useTaskRewardSettings();
   const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
-  const [selectedTask, setSelectedTask] = useState<TaskDoc | null>(null);
-  // One-time snapshot at mount, not re-read on every render — the actual
-  // enforcement is server-side (firestore.rules), this is just UI gating.
-  const [now] = useState(() => Date.now());
+  const daily = useDailyTasks(user?.uid, profile, packageInfo, tasks, tasksLoading);
+  const rewardPerAd = rewardSettings?.rewardPerAd ?? DEFAULT_TASK_REWARD_PER_AD;
+  const packageEarning = profile?.packageDailyEarning ?? packageInfo?.dailyEarning ?? 0;
 
-  // A package being disabled only blocks NEW purchases — existing holders
-  // keep full task eligibility, so this does not depend on isActive.
   const hasQualifyingPackage = Boolean(profile?.package);
-
-  const dailyTaskLimit = packageInfo?.dailyTaskLimit ?? 0;
-  const quotaReached = hasQualifyingPackage && usedToday >= dailyTaskLimit;
-
-  const availableNow = useMemo(() => {
-    if (!hasQualifyingPackage) return [];
-    return tasks.filter((task) => {
-      if (task.status !== "active") return false;
-      if (now < task.startDate.toMillis()) return false;
-      if (task.endDate && now > task.endDate.toMillis()) return false;
-      if (task.requiredPackageId && profile?.package !== task.requiredPackageId) return false;
-      if (task.minPackagePrice != null && (packageInfo?.price ?? 0) < task.minPackagePrice) {
-        return false;
-      }
-      return true;
-    });
-  }, [tasks, now, profile, packageInfo, hasQualifyingPackage]);
 
   if (!configured) {
     return (
@@ -87,7 +63,7 @@ export default function WorkRoomPage() {
 
         {!gateLoading && profileLoading && (
           <div className="flex flex-col gap-6">
-            <DailyClaimCardSkeleton />
+            <Skeleton className="h-40 w-full rounded-2xl" />
             <Skeleton className="h-32 w-full rounded-2xl" />
           </div>
         )}
@@ -113,65 +89,31 @@ export default function WorkRoomPage() {
                 <h1 className="text-2xl font-bold text-white">Work Room</h1>
               </div>
               <p className="text-sm text-white/50">
-                Your daily earning ritual — check today’s Coca-Cola earning and complete
-                today’s tasks.
+                Your daily earning ritual — complete today’s ad tasks to unlock both rewards at once.
               </p>
             </div>
 
-            <DailyClaimCard profile={profile} />
-
             {!hasQualifyingPackage && (
-              <div className="rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
-                <Alert variant="info">
-                  You need an active package to complete tasks. Visit the Packages page to
-                  purchase one.
-                </Alert>
+              <Alert variant="info">
+                You need an active package to complete tasks. Visit the Packages page to purchase one.
+              </Alert>
+            )}
+
+            {hasQualifyingPackage && daily.error && (
+              <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+                <Alert variant="error">{daily.error}</Alert>
               </div>
             )}
 
-            {hasQualifyingPackage && (
-              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-white">Today’s task quota</h2>
-                  {!packageLoading && !quotaLoading && (
-                    <p className="text-sm font-medium text-white/70">
-                      {Math.min(usedToday, dailyTaskLimit)} / {dailyTaskLimit}
-                    </p>
-                  )}
-                </div>
-                {packageLoading || quotaLoading ? (
-                  <Skeleton className="h-2 w-full rounded-full" />
-                ) : (
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-brand transition-all"
-                      style={{
-                        width: `${dailyTaskLimit > 0 ? Math.min(100, (usedToday / dailyTaskLimit) * 100) : 0}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {hasQualifyingPackage && quotaReached && (
-              <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-white/10 py-10 text-center">
-                <CheckCircle2 className="h-6 w-6 text-emerald-400" aria-hidden="true" />
-                <p className="text-sm text-white/70">
-                  You’ve completed today’s task quota. Come back tomorrow for more.
-                </p>
-              </div>
-            )}
-
-            {hasQualifyingPackage && !quotaReached && tasksLoading && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            {hasQualifyingPackage && !daily.error && (tasksLoading || daily.loading) && (
+              <div className="flex flex-col gap-4">
                 {Array.from({ length: 2 }).map((_, index) => (
-                  <Skeleton key={index} className="h-64 w-full rounded-2xl" />
+                  <Skeleton key={index} className="h-40 w-full rounded-2xl" />
                 ))}
               </div>
             )}
 
-            {hasQualifyingPackage && !quotaReached && !tasksLoading && tasksError && (
+            {hasQualifyingPackage && !daily.error && !tasksLoading && !daily.loading && tasksError && (
               <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
                 <Alert variant="error">{tasksError}</Alert>
                 <Button variant="outline" size="sm" onClick={retryTasks}>
@@ -180,28 +122,12 @@ export default function WorkRoomPage() {
               </div>
             )}
 
-            {hasQualifyingPackage && !quotaReached && !tasksLoading && !tasksError && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                {availableNow.length === 0 ? (
-                  <p className="text-sm text-white/50">No tasks available right now.</p>
-                ) : (
-                  availableNow.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      disabledReason={null}
-                      onSelect={() => setSelectedTask(task)}
-                    />
-                  ))
-                )}
-              </div>
-            )}
-
-            {selectedTask && (
-              <TaskSubmissionForm
-                task={selectedTask}
-                onDone={() => setSelectedTask(null)}
-                onCancel={() => setSelectedTask(null)}
+            {hasQualifyingPackage && !daily.error && !tasksLoading && !daily.loading && !tasksError && (
+              <TaskRotationList
+                uid={user!.uid}
+                daily={daily}
+                packageEarning={packageEarning}
+                rewardPerAd={rewardPerAd}
               />
             )}
 

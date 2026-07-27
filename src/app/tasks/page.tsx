@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -14,12 +13,10 @@ import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-n
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
 import { useAvailableTasks } from "@/features/tasks/hooks/use-available-tasks";
-import { TaskCard } from "@/features/tasks/components/task-card";
-import { TaskSubmissionForm } from "@/features/tasks/components/task-submission-form";
-import { TaskSubmissionHistory } from "@/features/tasks/components/task-submission-history";
-import type { TaskDoc, TaskFrequency } from "@/lib/firestore/tasks";
-
-type FrequencyFilter = TaskFrequency | "all";
+import { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
+import { useTaskRewardSettings } from "@/features/admin/hooks/use-task-reward-settings";
+import { TaskRotationList } from "@/features/tasks/components/task-rotation-list";
+import { DEFAULT_TASK_REWARD_PER_AD } from "@/lib/firestore/settings";
 
 export default function TasksPage() {
   const { user, loading: authLoading, configured } = useAuth();
@@ -31,42 +28,14 @@ export default function TasksPage() {
   } = useUserProfile();
   const { tasks, loading: tasksLoading, error: tasksError, retry: retryTasks } = useAvailableTasks();
   const { packageInfo } = usePackageLimits(profile?.package ?? null);
+  const { settings: rewardSettings } = useTaskRewardSettings();
   const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
-  const [search, setSearch] = useState("");
-  const [frequencyFilter, setFrequencyFilter] = useState<FrequencyFilter>("all");
-  const [selectedTask, setSelectedTask] = useState<TaskDoc | null>(null);
-  // One-time snapshot at mount, not re-read on every render — the actual
-  // enforcement is server-side (firestore.rules), this is just UI gating.
-  const [now] = useState(() => Date.now());
+  const daily = useDailyTasks(user?.uid, profile, packageInfo, tasks, tasksLoading);
+  const rewardPerAd = rewardSettings?.rewardPerAd ?? DEFAULT_TASK_REWARD_PER_AD;
+  const packageEarning = profile?.packageDailyEarning ?? packageInfo?.dailyEarning ?? 0;
 
-  // A package being disabled only blocks NEW purchases — existing holders
-  // keep full task eligibility, so this does not depend on isActive.
   const hasQualifyingPackage = Boolean(profile?.package);
-
-  function disabledReasonFor(task: TaskDoc): string | null {
-    if (!hasQualifyingPackage) return "Requires an active package";
-    if (task.requiredPackageId && profile?.package !== task.requiredPackageId) {
-      return "Package doesn't qualify";
-    }
-    if (task.minPackagePrice != null && (packageInfo?.price ?? 0) < task.minPackagePrice) {
-      return "Package doesn't qualify";
-    }
-    return null;
-  }
-
-  const visibleTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      if (task.status !== "active") return false;
-      if (now < task.startDate.toMillis()) return false;
-      if (task.endDate && now > task.endDate.toMillis()) return false;
-      if (frequencyFilter !== "all" && task.frequency !== frequencyFilter) return false;
-      if (search.trim() && !task.title.toLowerCase().includes(search.trim().toLowerCase())) {
-        return false;
-      }
-      return true;
-    });
-  }, [tasks, frequencyFilter, search, now]);
 
   if (!configured) {
     return (
@@ -80,7 +49,7 @@ export default function TasksPage() {
     <div className="min-h-screen bg-black">
       <AppHeader />
 
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:py-14">
+      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10 sm:py-14">
         {gateLoading && (
           <div className="flex min-h-[60vh] items-center justify-center">
             <Spinner className="h-6 w-6" />
@@ -88,9 +57,9 @@ export default function TasksPage() {
         )}
 
         {!gateLoading && profileLoading && (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col gap-4">
             {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-64 w-full rounded-2xl" />
+              <Skeleton key={index} className="h-40 w-full rounded-2xl" />
             ))}
           </div>
         )}
@@ -116,7 +85,8 @@ export default function TasksPage() {
                 <h1 className="text-2xl font-bold text-white">Tasks</h1>
               </div>
               <p className="text-sm text-white/50">
-                Complete tasks to earn extra rewards. Submissions are reviewed before payout.
+                Watch every assigned ad today to unlock your task reward and your daily Coca-Cola
+                earning together.
               </p>
             </div>
 
@@ -126,34 +96,21 @@ export default function TasksPage() {
               </Alert>
             )}
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <input
-                type="text"
-                placeholder="Search tasks…"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-surface-3 px-4 py-2.5 text-sm text-white placeholder:text-white/30 transition-colors focus:border-brand focus:outline-none sm:max-w-xs"
-              />
-              <select
-                value={frequencyFilter}
-                onChange={(event) => setFrequencyFilter(event.target.value as FrequencyFilter)}
-                className="rounded-xl border border-white/15 bg-surface-3 px-4 py-2.5 text-sm text-white transition-colors focus:border-brand focus:outline-none"
-              >
-                <option value="all">All frequencies</option>
-                <option value="one_time">One-time</option>
-                <option value="daily">Daily</option>
-              </select>
-            </div>
+            {hasQualifyingPackage && daily.error && (
+              <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+                <Alert variant="error">{daily.error}</Alert>
+              </div>
+            )}
 
-            {tasksLoading && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <Skeleton key={index} className="h-64 w-full rounded-2xl" />
+            {hasQualifyingPackage && !daily.error && (tasksLoading || daily.loading) && (
+              <div className="flex flex-col gap-4">
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <Skeleton key={index} className="h-40 w-full rounded-2xl" />
                 ))}
               </div>
             )}
 
-            {!tasksLoading && tasksError && (
+            {hasQualifyingPackage && !daily.error && !tasksLoading && !daily.loading && tasksError && (
               <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
                 <Alert variant="error">{tasksError}</Alert>
                 <Button variant="outline" size="sm" onClick={retryTasks}>
@@ -162,34 +119,14 @@ export default function TasksPage() {
               </div>
             )}
 
-            {!tasksLoading && !tasksError && visibleTasks.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
-                <p className="text-sm text-white/50">No tasks match right now.</p>
-              </div>
-            )}
-
-            {!tasksLoading && !tasksError && visibleTasks.length > 0 && (
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {visibleTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    disabledReason={disabledReasonFor(task)}
-                    onSelect={() => setSelectedTask(task)}
-                  />
-                ))}
-              </div>
-            )}
-
-            {selectedTask && (
-              <TaskSubmissionForm
-                task={selectedTask}
-                onDone={() => setSelectedTask(null)}
-                onCancel={() => setSelectedTask(null)}
+            {hasQualifyingPackage && !daily.error && !tasksLoading && !daily.loading && !tasksError && (
+              <TaskRotationList
+                uid={user!.uid}
+                daily={daily}
+                packageEarning={packageEarning}
+                rewardPerAd={rewardPerAd}
               />
             )}
-
-            <TaskSubmissionHistory />
           </>
         )}
       </main>

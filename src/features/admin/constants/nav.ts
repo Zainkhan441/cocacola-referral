@@ -16,6 +16,7 @@ export const ADMIN_MORE_NAV_LINKS = [
   { label: "Financial History", href: "/admin/transactions" },
   { label: "Earnings", href: "/admin/earnings" },
   { label: "Referral Logs", href: "/admin/referral-logs" },
+  { label: "Screenshot Management", href: "/admin/screenshot-management" },
   { label: "Tasks", href: "/admin/tasks" },
   { label: "Task Submissions", href: "/admin/task-submissions" },
   { label: "Bonus Tiers", href: "/admin/bonus-tiers" },

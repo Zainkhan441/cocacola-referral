@@ -9,6 +9,7 @@ import { db } from "@/lib/firebase/client";
 import { referralRewardDocRef } from "@/lib/firestore/referral-rewards";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { approveDeposit, rejectDeposit } from "@/features/admin/lib/deposit-actions";
+import { DepositScreenshotControls } from "@/features/admin/components/deposit-screenshot-controls";
 import type { DepositStatus } from "@/lib/firestore/deposits";
 import type { DepositWithId } from "@/features/admin/hooks/use-admin-deposits";
 
@@ -114,21 +115,7 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
         </div>
       </div>
 
-      {deposit.screenshotUrl && (
-        <a
-          href={deposit.screenshotUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block overflow-hidden rounded-xl border border-white/10"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element -- admin-facing proof preview from an arbitrary user-submitted URL, not a Next-optimizable local/remote asset */}
-          <img
-            src={deposit.screenshotUrl}
-            alt="Payment proof screenshot"
-            className="max-h-64 w-full object-contain bg-black"
-          />
-        </a>
-      )}
+      <DepositScreenshotControls deposit={deposit} onChanged={onReviewed} />
 
       {deposit.reviewNote && (
         <p className="text-xs text-white/50">

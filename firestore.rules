@@ -71,26 +71,6 @@ service cloud.firestore {
       return tier.requiredPackageId == null || user.package == tier.requiredPackageId;
     }
 
-    // The package-wise daily task COUNT limit (distinct from a single daily
-    // task's own per-task cooldown, canClaimDaily-style): caps how many task
-    // completions of ANY task this user may submit within a rolling 24h
-    // window. Absence of a counter document means the user hasn't submitted
-    // anything yet this window, so it's always allowed. Uses this holder's
-    // own snapshotted allowance (set at the approval that granted them their
-    // package — see approveDeposit) so a later admin edit to the package
-    // template can't retroactively change it; falls back to the package's
-    // current live limit only for accounts approved before that snapshot
-    // field existed.
-    function taskDailyCounterAllowsSubmission(uid) {
-      let user = userData(uid);
-      let dailyTaskLimit = user.get("packageDailyTaskLimit", null) != null
-        ? user.packageDailyTaskLimit
-        : get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit;
-      return !exists(/databases/$(database)/documents/taskDailyCounters/$(uid))
-        || request.time > get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.windowStartAt + duration.value(24, "h")
-        || get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.count < dailyTaskLimit;
-    }
-
     // Absence of settings/global means daily claims are ON by default — the
     // feature works out of the box without requiring an admin to explicitly
     // enable it first.
@@ -113,6 +93,39 @@ service cloud.firestore {
       return user.get("packageDailyEarning", null) != null
         ? user.packageDailyEarning
         : dailyEarningFor(user.package);
+    }
+
+    // Same "holder's own snapshot, live value as fallback" convention as
+    // effectiveDailyEarning, for the daily ad-task quota instead of the
+    // earning rate.
+    function effectiveDailyTaskLimit(user) {
+      return user.get("packageDailyTaskLimit", null) != null
+        ? user.packageDailyTaskLimit
+        : get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit;
+    }
+
+    // Admin-editable flat reward paid per completed ad-watch task
+    // (settings/taskRewards) — absence of the document falls back to the
+    // platform default of Rs 5, same graceful-default convention as
+    // currentBalanceMinWithdraw() below. Read live at claim time, never
+    // copied onto a task or user document, so a reward change takes effect
+    // immediately for every existing and future task.
+    function taskRewardPerAd() {
+      return !exists(/databases/$(database)/documents/settings/taskRewards)
+        ? 5
+        : get(/databases/$(database)/documents/settings/taskRewards).data.rewardPerAd;
+    }
+
+    // True once this user has completed at least `requiredCount` distinct
+    // tasks TODAY (a real UTC calendar day — the same boundary
+    // canClaimDaily/isNewUtcDay use). `progress` is dailyTaskProgress/{uid}'s
+    // data, fetched once by the caller via a single get() and passed in here
+    // — never re-fetched — to keep each write's total document-access count
+    // low. Independently maintained by taskCompletions' own create/update
+    // rules (see those match blocks) — this function never trusts
+    // taskRotations/{uid}'s self-reported arrays for anything financial.
+    function dailyTaskQuotaMetFromDoc(progress, requiredCount) {
+      return !isNewUtcDay(progress.windowStartAt, request.time) && progress.count >= requiredCount;
     }
 
     // Admin-editable minimum a Current Balance withdrawal request must meet
@@ -184,20 +197,29 @@ service cloud.firestore {
             || request.resource.data.languagePreference in ["en", "ur"]);
     }
 
-    // The self-service daily-claim path: the only fields allowed to change
-    // are exactly the ones a claim touches, each formula-validated against
-    // the caller's own current package. Credits Coca-Cola Earning only —
-    // this is the automatic daily package earning, never task/referral money.
-    function ownerCanClaimDaily() {
-      return canClaimDaily(resource.data)
+    // The self-service bundled daily-reward claim path — replaces the old
+    // automatic-only package-earning claim entirely: package earning is no
+    // longer credited on its own, only together with the flat per-ad task
+    // reward, once every one of today's assigned tasks is genuinely
+    // complete (dailyTaskQuotaMet). Reuses the exact same UTC-calendar-day
+    // idempotency anchor (lastDailyClaimAt/isNewUtcDay) the retired
+    // automatic path already relied on, so a double-click/refresh/two-tab
+    // race is closed by the same proven mechanism, not a new one.
+    function ownerCanClaimDailyTaskReward(uid) {
+      let user = resource.data;
+      let requiredCount = effectiveDailyTaskLimit(user);
+      let taskReward = requiredCount * taskRewardPerAd();
+      let packageEarning = effectiveDailyEarning(user);
+      let progress = get(/databases/$(database)/documents/dailyTaskProgress/$(uid)).data;
+      return canClaimDaily(user)
+        && dailyTaskQuotaMetFromDoc(progress, requiredCount)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(["cocaColaEarning", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
+             .hasOnly(["currentBalance", "cocaColaEarning", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
         && request.resource.data.lastDailyClaimAt == request.time
-        && request.resource.data.cocaColaEarning
-             == resource.data.cocaColaEarning + effectiveDailyEarning(resource.data)
-        && request.resource.data.totalEarnings
-             == resource.data.totalEarnings + effectiveDailyEarning(resource.data)
-        && request.resource.data.todayEarnings == effectiveDailyEarning(resource.data);
+        && request.resource.data.currentBalance == resource.data.currentBalance + taskReward
+        && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + packageEarning
+        && request.resource.data.totalEarnings == resource.data.totalEarnings + taskReward + packageEarning
+        && request.resource.data.todayEarnings == taskReward + packageEarning;
     }
 
     // The self-service "I'm submitting a package-purchase deposit" marker —
@@ -232,18 +254,24 @@ service cloud.firestore {
       );
     }
 
-    // Mirrors ownerCanClaimDaily() for the wallets/{uid} document — reads
-    // the user's package/cooldown via userData(uid) since wallets/{uid}
-    // itself doesn't store those fields. Both writes happen in the same
-    // client transaction as the users/{uid} update above, and both are
-    // independently gated the same way, so neither can be written alone by
-    // a client skipping the other.
-    function ownerCanClaimDailyWallet(uid) {
+    // Mirrors ownerCanClaimDailyTaskReward() for the wallets/{uid} document
+    // — reads the user's package/quota via userData(uid) since
+    // wallets/{uid} itself doesn't store those fields. Both writes happen
+    // in the same client transaction as the users/{uid} update above, and
+    // both are independently gated the same way, so neither can be written
+    // alone by a client skipping the other.
+    function ownerCanClaimDailyTaskRewardWallet(uid) {
       let user = userData(uid);
+      let requiredCount = effectiveDailyTaskLimit(user);
+      let taskReward = requiredCount * taskRewardPerAd();
+      let packageEarning = effectiveDailyEarning(user);
+      let progress = get(/databases/$(database)/documents/dailyTaskProgress/$(uid)).data;
       return canClaimDaily(user)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["cocaColaEarning", "totalEarnings", "updatedAt"])
-        && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + effectiveDailyEarning(user)
-        && request.resource.data.totalEarnings == resource.data.totalEarnings + effectiveDailyEarning(user);
+        && dailyTaskQuotaMetFromDoc(progress, requiredCount)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["currentBalance", "cocaColaEarning", "totalEarnings", "updatedAt"])
+        && request.resource.data.currentBalance == resource.data.currentBalance + taskReward
+        && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + packageEarning
+        && request.resource.data.totalEarnings == resource.data.totalEarnings + taskReward + packageEarning;
     }
 
     // The admin path: deliberately narrower than "admin can do anything".
@@ -319,7 +347,7 @@ service cloud.firestore {
         && request.resource.data.accountStatus == "active";
       allow update: if (isOwner(uid) && ownerCanUpdateUser())
         || (isAdmin() && adminCanUpdateUser())
-        || (isOwner(uid) && ownerCanClaimDaily())
+        || (isOwner(uid) && ownerCanClaimDailyTaskReward(uid))
         || (isOwner(uid) && ownerCanMarkPendingPurchase())
         || (isOwner(uid) && ownerCanMarkPendingWithdrawal());
       allow delete: if false;
@@ -350,7 +378,7 @@ service cloud.firestore {
           && request.resource.data.staffEarning is number && request.resource.data.staffEarning >= 0
           && request.resource.data.totalEarnings is number && request.resource.data.totalEarnings >= 0
           && request.resource.data.pendingEarnings is number && request.resource.data.pendingEarnings >= 0)
-        || (isOwner(uid) && ownerCanClaimDailyWallet(uid));
+        || (isOwner(uid) && ownerCanClaimDailyTaskRewardWallet(uid));
       allow delete: if false;
     }
 
@@ -394,13 +422,27 @@ service cloud.firestore {
         || (isSignedIn()
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.userName is string
-          && request.resource.data.type == "daily_reward"
           && request.resource.data.status == "completed"
           && request.resource.data.description is string
-          && request.resource.data.wallet == "cocaColaEarning"
           && request.resource.data.referenceId is string
+          // Both ledger entries the bundled daily-task-reward claim writes for
+          // itself — see claimDailyTaskReward — share the same eligibility
+          // gate (a valid, quota-met, not-yet-claimed-today state), each
+          // pinned to its own wallet/amount formula so neither can be forged
+          // independently of the other.
           && canClaimDaily(userData(request.auth.uid))
-          && request.resource.data.amount == effectiveDailyEarning(userData(request.auth.uid)));
+          && dailyTaskQuotaMetFromDoc(
+               get(/databases/$(database)/documents/dailyTaskProgress/$(request.auth.uid)).data,
+               effectiveDailyTaskLimit(userData(request.auth.uid))
+             )
+          && (
+               (request.resource.data.type == "daily_reward"
+                 && request.resource.data.wallet == "cocaColaEarning"
+                 && request.resource.data.amount == effectiveDailyEarning(userData(request.auth.uid)))
+               || (request.resource.data.type == "task_reward"
+                 && request.resource.data.wallet == "currentBalance"
+                 && request.resource.data.amount == effectiveDailyTaskLimit(userData(request.auth.uid)) * taskRewardPerAd())
+             ));
       allow update, delete: if false;
     }
 
@@ -412,6 +454,28 @@ service cloud.firestore {
         && (!("reviewNote" in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.reviewNote == null
             || request.resource.data.reviewNote is string);
+    }
+
+    // Permanent, admin-only removal of ONLY a deposit's screenshot payload —
+    // every financial/audit field (amount, status, reviewedBy, packageId,
+    // createdAt, etc.) is frozen by omission from the allowed-keys list, so
+    // this can never be used to alter anything but the screenshot itself.
+    // Re-checks resource.data.screenshotStatus == "available" server-side —
+    // the real duplicate-deletion guard, independent of the UI hiding the
+    // button once deleted. Stamps the four audit fields to exact,
+    // non-forgeable values (admin's own uid, server time, a fixed reason
+    // string) — a client can never backdate, misattribute, or invent a
+    // different reason for a deletion.
+    function adminCanDeleteScreenshot() {
+      return resource.data.screenshotStatus == "available"
+        && resource.data.screenshotUrl != null
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(["screenshotUrl", "screenshotStatus", "screenshotDeletedAt", "screenshotDeletedBy", "screenshotDeletionReason", "updatedAt"])
+        && request.resource.data.screenshotUrl == null
+        && request.resource.data.screenshotStatus == "deleted"
+        && request.resource.data.screenshotDeletedAt == request.time
+        && request.resource.data.screenshotDeletedBy == request.auth.uid
+        && request.resource.data.screenshotDeletionReason == "admin_manual_cleanup";
     }
 
     // Users may only ever create their own deposit request, always starting
@@ -439,8 +503,33 @@ service cloud.firestore {
         && request.resource.data.referenceId.size() > 0
         && request.resource.data.senderAccountNumber is string
         && request.resource.data.senderAccountNumber.size() > 0
-        && (request.resource.data.screenshotUrl == null
-            || request.resource.data.screenshotUrl is string)
+        // Screenshot is optional (null == none attached). When present, it
+        // must be a data-URL string under a hard 450KB safety ceiling —
+        // generous headroom over the ~410KB a legitimately-compressed
+        // 300KB image encodes to, so it never blocks a real upload, but it
+        // still bounds a hand-crafted request well clear of Firestore's
+        // 1MiB document limit. The MIME prefix is also independently
+        // re-checked here against the same JPEG/PNG/WebP allowlist the
+        // client enforces (payment-screenshots.ts) — a hand-crafted direct
+        // SDK write can never smuggle in a different content type just
+        // because it fits under the size cap. screenshotStatus must
+        // consistently reflect whether a screenshot was actually attached,
+        // and none of the admin-only deletion-audit fields may be pre-set
+        // by the submitter.
+        && (
+             (request.resource.data.screenshotUrl == null
+               && request.resource.data.screenshotStatus == null
+               && request.resource.data.screenshotSizeBytes == null)
+             || (request.resource.data.screenshotUrl is string
+               && request.resource.data.screenshotUrl.size() < 450000
+               && request.resource.data.screenshotUrl.matches('^data:image/(jpeg|png|webp);base64,.*')
+               && request.resource.data.screenshotStatus == "available"
+               && request.resource.data.screenshotSizeBytes is number
+               && request.resource.data.screenshotSizeBytes > 0)
+           )
+        && request.resource.data.screenshotDeletedAt == null
+        && request.resource.data.screenshotDeletedBy == null
+        && request.resource.data.screenshotDeletionReason == null
         && isValidPackageRef(request.resource.data.packageId)
         && (
              (request.resource.data.packageId == null
@@ -451,7 +540,7 @@ service cloud.firestore {
                && request.resource.data.amount == get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.price
                && userData(request.auth.uid).pendingPackagePurchaseId == null)
            );
-      allow update: if isAdmin() && adminCanReviewRequest();
+      allow update: if isAdmin() && (adminCanReviewRequest() || adminCanDeleteScreenshot());
       allow delete: if false;
     }
 
@@ -617,10 +706,14 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Admin-managed task definitions (Milestone 12). Any signed-in user may
-    // read them (needed to browse available tasks and resolve their own
+    // Admin-managed task definitions (Milestone 12, redesigned into a
+    // global-reward ad-watch model). Any signed-in user may read them
+    // (needed to browse available tasks and resolve their own
     // eligibility); only an admin may write. Never deleted — disabled or
-    // archived instead — so an old taskSubmission's taskId always resolves.
+    // archived instead. No reward/frequency/proof fields anymore: every
+    // task pays the single global reward (settings/taskRewards, see
+    // taskRewardPerAd()) and is completed by watching its video, tracked in
+    // taskCompletions — never admin-reviewed proof.
     match /tasks/{taskId} {
       allow read: if isSignedIn();
       allow create: if isAdmin()
@@ -628,14 +721,11 @@ service cloud.firestore {
         && request.resource.data.title is string && request.resource.data.title.size() > 0
         && request.resource.data.description is string
         && request.resource.data.instructions is string
-        && request.resource.data.rewardAmount is number && request.resource.data.rewardAmount > 0
         && isValidPackageRef(request.resource.data.requiredPackageId)
         && (request.resource.data.minPackagePrice == null
             || (request.resource.data.minPackagePrice is number && request.resource.data.minPackagePrice >= 0))
         && request.resource.data.startDate is timestamp
         && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp)
-        && request.resource.data.frequency in ["one_time", "daily"]
-        && request.resource.data.proofRequired is bool
         && request.resource.data.videoUrl is string && request.resource.data.videoUrl.size() > 0
         && request.resource.data.status in ["active", "disabled", "archived"];
       allow update: if isAdmin()
@@ -644,108 +734,130 @@ service cloud.firestore {
         && request.resource.data.title is string && request.resource.data.title.size() > 0
         && request.resource.data.description is string
         && request.resource.data.instructions is string
-        && request.resource.data.rewardAmount is number && request.resource.data.rewardAmount > 0
         && isValidPackageRef(request.resource.data.requiredPackageId)
         && (request.resource.data.minPackagePrice == null
             || (request.resource.data.minPackagePrice is number && request.resource.data.minPackagePrice >= 0))
         && request.resource.data.startDate is timestamp
         && (request.resource.data.endDate == null || request.resource.data.endDate is timestamp)
-        && request.resource.data.frequency in ["one_time", "daily"]
-        && request.resource.data.proofRequired is bool
         && request.resource.data.videoUrl is string && request.resource.data.videoUrl.size() > 0
         && request.resource.data.status in ["active", "disabled", "archived"];
       allow delete: if false;
     }
 
-    // A user's self-submitted task completion. Duplicate prevention differs
-    // by frequency: a "one_time" task's doc id must be `${taskId}_${uid}` —
-    // Firestore's own create-vs-update distinction (this rule only ever
-    // allows `create`) means a second attempt at that same path is
-    // evaluated as an update and denied, with no extra state needed. A
-    // "daily" task uses an auto-id instead, gated by the sibling
-    // taskCooldowns/{uid}_{taskId} marker's rolling 24h window (Firestore
-    // rules can't compute calendar dates to enforce a real "once per
-    // calendar day" — see taskCooldowns.ts).
-    match /taskSubmissions/{id} {
-      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+    // --- Ad-task rotation + all-or-nothing daily reward ---
+    // Replaces admin-reviewed taskSubmissions entirely for new activity —
+    // taskSubmissions below is now read/admin-review only (create blocked),
+    // and its former taskCooldowns/taskDailyCounters gating collections have
+    // been removed entirely (both were empty, and nothing could ever write
+    // to them again once task-submission-form.tsx was removed). Every new
+    // task completion goes through taskCompletions instead.
+
+    // One document per (uid, taskId), doc id `${uid}_${taskId}`, reused
+    // across every calendar day — see task-completions.ts for the full
+    // two-phase (Start/Complete) lifecycle this enforces. taskEligible()
+    // covers the same package-gate check tasks/{taskId} itself uses.
+    match /taskCompletions/{id} {
+      // resource == null must be allowed here — startTaskWatch's transaction
+      // always reads this document first to check whether it exists yet
+      // (the check-then-create/reset idiom), and for a task a user has never
+      // started, resource is null: resource.data.uid would throw a
+      // null-dereference evaluation error (treated as deny) on literally the
+      // first Start of every task, for every user — the same pitfall
+      // pendingBonusClaims's read rule already documents and guards against.
+      allow read: if isSignedIn() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
+        && isActiveAccount(request.auth.uid)
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.userName is string && request.resource.data.userName.size() > 0
-        && request.resource.data.taskId is string
-        && get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.status == "active"
-        && request.time >= get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.startDate
-        && (get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.endDate == null
-            || request.time <= get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.endDate)
-        && request.resource.data.taskTitle == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.title
-        && request.resource.data.rewardAmount == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.rewardAmount
-        && request.resource.data.frequency == get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.frequency
+        && id == request.auth.uid + "_" + request.resource.data.taskId
         && taskEligible(request.auth.uid, request.resource.data.taskId)
-        && taskDailyCounterAllowsSubmission(request.auth.uid)
-        && request.resource.data.textResponse is string && request.resource.data.textResponse.size() > 0
-        && (get(/databases/$(database)/documents/tasks/$(request.resource.data.taskId)).data.proofRequired == false
-            || (request.resource.data.proofScreenshotUrl is string && request.resource.data.proofScreenshotUrl.size() > 0))
-        && (request.resource.data.proofScreenshotUrl == null || request.resource.data.proofScreenshotUrl is string)
-        && request.resource.data.status == "pending"
-        && request.resource.data.reviewedBy == null
-        && (
-             (request.resource.data.frequency == "one_time"
-               && id == request.resource.data.taskId + "_" + request.auth.uid)
-             || (request.resource.data.frequency == "daily"
-               && (!exists(/databases/$(database)/documents/taskCooldowns/$(request.auth.uid + "_" + request.resource.data.taskId))
-                   || request.time > get(/databases/$(database)/documents/taskCooldowns/$(request.auth.uid + "_" + request.resource.data.taskId)).data.lastSubmittedAt + duration.value(24, "h")))
-           );
-      allow update: if isAdmin() && adminCanReviewRequest();
-      allow delete: if false;
-    }
-
-    // The rolling-24h-window marker for daily task resubmission — mirrors
-    // users/{uid}.lastDailyClaimAt's role but per (uid, taskId) pair, since
-    // there can be many different daily tasks. Written by the same client
-    // transaction as the taskSubmission it accompanies.
-    match /taskCooldowns/{id} {
-      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
-      allow create: if isSignedIn()
-        && id == request.auth.uid + "_" + request.resource.data.taskId
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.taskId is string
-        && request.resource.data.lastSubmittedAt == request.time;
+        && request.resource.data.startedAt == request.time
+        && request.resource.data.completedAt == null;
       allow update: if isSignedIn()
-        && id == request.auth.uid + "_" + request.resource.data.taskId
         && resource.data.uid == request.auth.uid
-        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
         && request.resource.data.taskId == resource.data.taskId
-        && request.time > resource.data.lastSubmittedAt + duration.value(24, "h")
-        && request.resource.data.lastSubmittedAt == request.time
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastSubmittedAt"]);
+        && (
+          // Re-Start for a new UTC day (the previous completion is stale).
+          (resource.data.completedAt != null
+            && isNewUtcDay(resource.data.completedAt, request.time)
+            && request.resource.data.startedAt == request.time
+            && request.resource.data.completedAt == null)
+          // Complete today's Start — the one real anti-instant-click floor:
+          // at least 10 real wall-clock seconds since startedAt. Task
+          // eligibility is deliberately NOT re-checked here — if a task
+          // goes inactive mid-watch, no reward is owed for it, which is
+          // correct, not a bug.
+          || (resource.data.completedAt == null
+            && request.time >= resource.data.startedAt + duration.value(10, "s")
+            && request.resource.data.startedAt == resource.data.startedAt
+            && request.resource.data.completedAt == request.time)
+        );
       allow delete: if false;
     }
 
-    // The rolling-24h package-wise daily task COUNT limit marker — one
-    // document per user (doc id == uid, unlike taskCooldowns which is per
-    // (uid, taskId)), since this caps total completions across every task,
-    // not one specific task. Written by the same client transaction as the
-    // taskSubmission it accompanies; the create/update branches mirror
-    // ownerCanClaimDaily's "first ever" vs "already have one" split, with the
-    // update branch additionally re-enforcing the count/limit check so a
-    // client can't just skip creating a taskSubmission and increment this
-    // alone, or increment past the limit.
-    match /taskDailyCounters/{uid} {
+    // One document per user (doc id == uid) — counts how many DISTINCT
+    // tasks this user has completed TODAY (a real UTC calendar day),
+    // against effectiveDailyTaskLimit(). Incremented by exactly 1 in the
+    // SAME transaction as a taskCompletions Complete-transition; since a
+    // given task can only complete once per day (see above), double-
+    // counting one task toward this count is impossible by construction.
+    match /dailyTaskProgress/{uid} {
       allow read: if isOwner(uid) || isAdmin();
       allow create: if isOwner(uid)
         && request.resource.data.uid == uid
         && request.resource.data.count == 1
         && request.resource.data.windowStartAt == request.time;
       allow update: if isOwner(uid)
-        && request.resource.data.uid == uid
+        && request.resource.data.uid == resource.data.uid
         && (
-             (request.time > resource.data.windowStartAt + duration.value(24, "h")
-               && request.resource.data.count == 1
-               && request.resource.data.windowStartAt == request.time)
-             || (request.time <= resource.data.windowStartAt + duration.value(24, "h")
-               && resource.data.count < get(/databases/$(database)/documents/packages/$(userData(uid).package)).data.dailyTaskLimit
-               && request.resource.data.count == resource.data.count + 1
-               && request.resource.data.windowStartAt == resource.data.windowStartAt)
-           );
+          (isNewUtcDay(resource.data.windowStartAt, request.time)
+            && request.resource.data.count == 1
+            && request.resource.data.windowStartAt == request.time)
+          || (!isNewUtcDay(resource.data.windowStartAt, request.time)
+            && request.resource.data.count == resource.data.count + 1
+            && request.resource.data.windowStartAt == resource.data.windowStartAt)
+        );
+      allow delete: if false;
+    }
+
+    // One document per user (doc id == uid) — the day-to-day "which ads are
+    // offered today" rotation/cycle state. Deliberately NOT part of the
+    // financial trust boundary: only light shape validation here, and no
+    // money-moving rule anywhere in this file ever reads this document.
+    // Tampering with your own rotation state can only change which tasks
+    // you personally see next — the actual reward gate above independently
+    // re-derives truth from real taskCompletions/dailyTaskProgress
+    // documents, never from these self-reported arrays.
+    match /taskRotations/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow write: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.cycleId is number && request.resource.data.cycleId >= 1
+        && request.resource.data.remainingPoolTaskIds is list
+        && request.resource.data.completedThisCycleTaskIds is list
+        && request.resource.data.assignedDate is string
+        && request.resource.data.assignedTaskIds is list
+        && request.resource.data.assignedTaskIds.size() <= 50;
+      allow delete: if false;
+    }
+
+    // --- Legacy admin-reviewed task submissions (frozen, see above) ---
+
+    // Read-only historical/admin-review surface now: creation is
+    // permanently blocked (the only client that ever wrote here,
+    // task-submission-form.tsx, was removed when the task system moved to
+    // the global-reward/video-completion model above — see taskCompletions).
+    // The collection is empty in production as of this cleanup; read +
+    // admin-review (approve/reject) access is kept only so the admin Task
+    // Submissions page keeps working as a frozen view of any pre-migration
+    // history, without a code path that could ever add to it again. The
+    // sibling taskCooldowns/taskDailyCounters collections that used to gate
+    // new submissions here have been removed entirely (see below) since
+    // nothing can ever create one again either.
+    match /taskSubmissions/{id} {
+      allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if false;
+      allow update: if isAdmin() && adminCanReviewRequest();
       allow delete: if false;
     }
 
@@ -1008,6 +1120,8 @@ service cloud.firestore {
         || (settingId == "paymentDetails"
           && request.resource.data.accountTitle is string && request.resource.data.accountTitle.size() > 0
           && request.resource.data.accountNumber is string && request.resource.data.accountNumber.size() > 0)
+        || (settingId == "taskRewards"
+          && request.resource.data.rewardPerAd is number && request.resource.data.rewardPerAd > 0)
       );
     }
 

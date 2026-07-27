@@ -33,8 +33,9 @@ export type PackageDoc = {
   // no referrer) means no commission is paid.
   referralCommission: number;
   // Maximum number of task completions per day for a holder of this
-  // package — resets every rolling 24h window, same mechanism as an
-  // individual daily task's own cooldown (see taskCooldowns.ts).
+  // package — resets on a real UTC calendar day (see
+  // src/lib/firestore/daily-task-progress.ts), and gates the bundled
+  // all-or-nothing daily reward claim (see claimDailyTaskReward).
   dailyTaskLimit: number;
   // Marketing bullet points shown on the packages page; purely descriptive,
   // never used in any earning/withdrawal calculation.
@@ -61,9 +62,11 @@ export async function getPackageDocument(
 }
 
 // Packages realistically number in the tens, not thousands — a single
-// unpaginated listener is simpler and correct at this scale.
+// unpaginated listener is simpler and correct at this scale. Ordered by
+// price ascending so the package-selection screen always renders tiers
+// low-to-high (Basic → Super Premium) regardless of creation order.
 export function allPackagesQuery(db: Firestore): Query<PackageDoc> {
-  return query(packagesCollection(db), orderBy("createdAt", "desc"));
+  return query(packagesCollection(db), orderBy("price", "asc"));
 }
 
 export type PackageInput = {

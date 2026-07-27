@@ -1,6 +1,6 @@
 # Project State — Coca-Cola Referral Platform
 
-Last updated: 2026-07-27 (Full-application production audit + High-severity fixes + full account reset)
+Last updated: 2026-07-28 (Global task-reward system, daily task rotation, all-or-nothing daily reward, package restructure, rebrand to CocaColaEarn)
 
 This file is the single source of truth for "what's done, what's left."
 Read this before starting any new work session on this repo.
@@ -416,6 +416,331 @@ document count matches its pre-wipe count exactly.
 
 Lint, `tsc --noEmit`, and `next build` all pass clean on the current tree.
 
+### Global task reward, daily task rotation, all-or-nothing daily reward, package restructure, rebrand — 2026-07-28 — **COMPLETE, QA-passed (48/48)**
+
+Replaces the old per-task admin-reviewed-proof reward system and the old
+automatic-only daily package earning with a single, bundled, fully
+automatic daily loop. **Rebrand**: product name changed from "Coca
+Rewards" to **CocaColaEarn** everywhere (single source of truth:
+`src/config/site.ts`'s `name` field) — no other branding/theme/color
+changed, no database/API/route/business-logic rename.
+
+**1. Global task reward** — `settings/taskRewards` (singleton doc,
+`rewardPerAd: number`, default Rs 5 when absent) replaces per-task reward
+amounts entirely. Read live at claim time (never copied onto a task/user
+doc), so an admin change takes effect immediately for every existing and
+future task. Admin UI: "Task Reward Settings" card above the task list on
+`/admin/tasks`.
+
+**2. Task schema trimmed** — `TaskDoc`/`TaskInput` dropped `rewardAmount`,
+`frequency`, `proofRequired`. Kept: title, description, instructions,
+videoUrl (any http/https URL, no host whitelist), requiredPackageId/
+minPackagePrice, startDate/endDate, status. Admin form's Instructions
+field defaults to "Watch the advertisement till the end to earn today's
+reward." (editable).
+
+**3. Daily task rotation** (`taskRotations/{uid}`, one per user, NOT part
+of the financial trust boundary — light shape validation only, no money
+logic anywhere reads it) — admin creates any number of active tasks;
+each user is offered `dailyTaskLimit` random tasks per day from their
+eligible-active pool, never repeating a task until every eligible task
+has been completed at least once (then reshuffles, a fresh cycle,
+repeats allowed again). Pure algorithm: `src/features/tasks/lib/rotation.ts`
+(`computeTodaysAssignment`, unit-testable, no Firestore access).
+
+**4. Video-watch completion** (`taskCompletions/{uid}_{taskId}`, two-phase
+Start→Complete, reused across days) — YouTube URLs use the real IFrame
+API `ENDED` event; any other URL falls back to a 10-second,
+tab-visibility-aware timer. The actual, unconditional floor is
+rules-enforced: `request.time >= startedAt + 10s`, regardless of what the
+client claims. `dailyTaskProgress/{uid}` (one per user) counts distinct
+completions per real UTC calendar day, incremented in the same
+transaction as each Complete — this is the only thing the reward claim
+actually reads (not per-task documents), keeping every write's rule
+evaluation cheap.
+
+**5. All-or-nothing bundled claim** (`claimDailyTaskReward` in
+`src/features/tasks/lib/actions.ts`) — package earning is **never**
+credited alone anymore; both the flat task reward
+(`dailyTaskLimit × rewardPerAd`) and the package's daily earning are
+credited together, once, only once `dailyTaskProgress.count >=
+dailyTaskLimit` for the current UTC day, reusing the exact
+`lastDailyClaimAt`/`isNewUtcDay` idempotency the old automatic system
+already relied on. `dailyRewards` (unchanged shape) is still written
+for backward-compat with the admin "Today's Earnings Paid" stat; two
+`transactions` docs are written per claim (`type: "task_reward"`,
+`type: "daily_reward"`).
+
+**6. Referral commission** — audited, confirmed unchanged and already
+strictly one-level/direct-only (see the existing "Direct Referral / Staff
+Earning" section above). No code changes were needed; QA re-confirmed the
+Ali→Zain→Salman scenario (Ali earns only from Zain, nothing from Salman)
+against live rules.
+
+**7. Four production packages** — `packages` collection was empty at the
+start of this milestone; created exactly:
+| Name | Price | Daily tasks | Daily earning | Referral commission |
+|---|---|---|---|---|
+| Coca Basic | 1000 | 1 | 350 | 220 |
+| Coca Standard | 2000 | 2 | 600 | 400 |
+| Coca Premium | 4000 | 4 | 1350 | 750 |
+| Coca Super Premium | 7000 | 8 | 2400 | 1700 |
+
+`allPackagesQuery` now orders by `price asc` (always Basic→Super Premium
+regardless of creation order). `/packages` page changed from a 3-column
+grid to a centered vertical stack (`package-card.tsx` capped at
+`max-w-md`) — no Fanta branding/assets/copy referenced, only the layout
+shape matched; existing Coca-Cola color theme untouched.
+
+**New Firestore collections**: `taskCompletions`, `dailyTaskProgress`,
+`taskRotations`, plus the `settings/taskRewards` singleton doc. **No new
+indexes required** — every new read is a single-document `get()`, never a
+paginated query.
+
+**Old collections/code left untouched, not deleted** (per "do not delete
+working data"): `taskSubmissions`, `taskCooldowns`, `taskDailyCounters` —
+frozen, no new writes ever land here again; the admin Task Submissions
+review page remains as a historical view. `runAutomaticDailyEarning`
+(`src/features/earnings/lib/actions.ts`) and its retired rules branch are
+dead code, never called from any UI anymore.
+
+**Deleted (fully orphaned, zero remaining importers)**: `task-card.tsx`,
+`task-submission-form.tsx`, `task-submission-history.tsx`,
+`daily-claim-card.tsx`.
+
+#### Three real bugs found and fixed during live QA (all now deployed)
+
+QA was run against the live `coca-rewards` project using disposable
+accounts (a real Ali→Zain→Salman referral/registration/purchase/task/claim
+flow through the actual client SDK and production rules — not mocked),
+plus direct rules-bypass attempts. Three genuine bugs surfaced and were
+fixed and redeployed before QA could pass:
+
+1. **Rotation never actually shrank** — `computeTodaysAssignment` had no
+   mechanism to move a genuinely-completed task from `remainingPoolTaskIds`
+   into `completedThisCycleTaskIds`, so the "no repeat until the whole pool
+   is exhausted" guarantee was silently broken (a task could be redrawn
+   the very next day). Fixed: `computeTodaysAssignment` now accepts
+   `completedSinceLastAssignment` (resolved by `use-daily-tasks.ts` from the
+   real `taskCompletions` records of the previous assignment) and folds
+   those into the pool exactly once, at the moment a new day's assignment
+   is computed.
+2. **`taskCompletions`'s read rule threw on every very first Start** —
+   `allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin())`
+   dereferences `resource.data` unconditionally; for a task a user has
+   never started, `resource` is `null`, which throws (denied) — the exact
+   same pitfall `pendingBonusClaims` already documents elsewhere in this
+   file. This blocked literally every user's first-ever task Start in
+   production until fixed with `resource == null || ...`.
+3. **Write-order-dependent rule staleness in the bundled claim** — within
+   a single `runTransaction`, a rule's `get()` call for one write reflects
+   an **earlier write already issued to that same document in the same
+   transaction**. `claimDailyTaskReward` issued the `users/{uid}` update
+   (which sets `lastDailyClaimAt` to "now") before the `wallets/{uid}`
+   update, `dailyRewards` create, and the two `transactions` creates — all
+   four of which independently re-derive `canClaimDaily`/eligibility via a
+   fresh `userData(uid)` read, since none of those documents carry their
+   own `lastDailyClaimAt`. Each of those fresh reads then saw the just-set
+   "now" and its own `isNewUtcDay` check compared "now" against "now" —
+   always false, permission-denied, on every single legitimate claim.
+   Fixed two ways: (a) reordered `claimDailyTaskReward` so `users/{uid}` is
+   written **last**, after every sibling that needs a fresh read of it; (b)
+   added a missing `task_reward` branch to `transactions`'s self-service
+   create rule (it previously only ever permitted `type == "daily_reward"`
+   for a non-admin author, so the new bundled claim's `task_reward` ledger
+   entry could never have been written at all, by any user, regardless of
+   ordering). Also simplified `dailyTaskQuotaMet` into a single-fetch
+   `dailyTaskQuotaMetFromDoc(progress, requiredCount)` taking an
+   already-read `dailyTaskProgress` doc, reducing redundant `get()` calls
+   per write.
+
+All three fixes are live in the deployed `firestore.rules` /
+`src/features/tasks/lib/actions.ts` / `src/features/tasks/lib/rotation.ts`
+/ `src/features/tasks/hooks/use-daily-tasks.ts`.
+
+#### QA results — 48/48 assertions passed
+
+Covered (via real disposable accounts against live production rules, all
+cleaned up afterward — zero QA data or accounts remain):
+registration/login/referral-chain attribution; the four packages' exact
+values; direct-only referral commission (Ali/Zain/Salman, one level,
+no duplicate on re-approval attempt); `referredBy` immutability and
+self-referral impossibility; admin-only global reward setting (default
+Rs 5, then explicit change, applied immediately to a pre-existing task);
+non-admin rejected from writing `settings/taskRewards`, inflating their
+own balance, self-crediting a `referralRewards` doc, or creating a task;
+package-sized task assignment (Standard→2, Basic→1) with disabled/
+expired/future/wrong-package tasks never assigned; the 10-second
+watch-floor enforced both client-side and by rules (direct hand-crafted
+instant-complete and dailyTaskProgress count-jump both rejected);
+duplicate completion of the same task same day blocked; 1/2 tasks →
+Rs 0/Rs 0; 2/2 tasks → both credited exactly once, atomically; concurrent
+repeat-claim attempts (double-click/two-tab race) → no double-credit;
+reward-per-ad change applied immediately to a pre-existing task; a
+newly-created task joining the rotation pool without disturbing an
+already-offered assignment; the pool-fold-in (completed tasks leave the
+pool, never repeat next day) and pool-exhaustion reshuffle behavior,
+verified at the pure-function level since a real multi-UTC-day wait isn't
+feasible in a single QA session.
+
+A pre-deploy Firestore snapshot (Admin SDK JSON export of all 11 live
+collections, 121 docs) was written to the local scratch directory before
+any rules deployment, as a safety net — not needed in the end, since
+every deploy in this milestone only ever changed Security Rules, never
+touched a document.
+
+Lint, `tsc --noEmit`, and `next build` all pass clean on the current tree
+(re-verified after all three bug fixes above, not just before them).
+
+#### Post-migration dead-code cleanup — 2026-07-28 — **COMPLETE**
+
+A follow-up audit (prompted by an explicit "confirm no dead code" request)
+found 6 files that the task-system rewrite above had silently orphaned —
+zero remaining callers anywhere, confirmed by exhaustive grep before
+deletion, and their backing collections were verified **empty in
+production** (0 documents each) before touching anything:
+`src/features/tasks/hooks/use-daily-task-quota.ts`,
+`src/features/tasks/hooks/use-my-task-submissions.ts`,
+`src/features/earnings/hooks/use-daily-claim-status.ts`,
+`src/features/earnings/lib/actions.ts` (`runAutomaticDailyEarning` — the
+old retired automatic-claim function; this was the file's only export, so
+the whole file was removed), `src/lib/firestore/task-daily-counters.ts`,
+`src/lib/firestore/task-cooldowns.ts`. All deleted.
+
+`firestore.rules`: removed the now-fully-unreachable `taskDailyCounters/{uid}`
+and `taskCooldowns/{id}` match blocks entirely (their only purpose was
+gating `taskSubmissions` creates, and nothing can create a new
+`taskSubmissions` doc anymore — the client file that used to do that,
+`task-submission-form.tsx`, was removed in the milestone above). Also
+removed the now-dead `taskDailyCounterAllowsSubmission()` helper function
+(its only call site was the create rule just removed). `taskSubmissions/{id}`'s
+`allow create` changed from a long, now-unreachable-and-partially-invalid
+condition (it referenced `rewardAmount`/`frequency`/`proofRequired` fields
+that no longer exist on any task) to a flat `if false` — read access and
+the admin-review `allow update` (approve/reject) are both kept unchanged,
+so the frozen admin Task Submissions page still works exactly as before
+for any pre-migration history (there is none currently; collection is
+empty).
+
+`firestore.indexes.json`: removed the `taskSubmissions (uid asc, createdAt
+desc)` composite index — it only ever existed for the now-deleted
+`myTaskSubmissionsPageQuery`. Not deployed (no indexes deploy was
+requested or needed since nothing currently depends on it); the source
+file is just cleaned up for the next real indexes deploy whenever one
+happens. A second, unrelated pre-existing `taskSubmissions (uid asc,
+status asc)` index was left alone — it predates this session's work and
+matches no current query either, but touching it is outside this
+cleanup's scope.
+
+Stale comments referencing the deleted files by name were also updated in
+`src/lib/firestore/packages.ts`, `src/lib/firestore/daily-task-progress.ts`,
+and `src/lib/firestore/task-submissions.ts` (the latter also lost 3 dead
+exports — `oneTimeTaskSubmissionDocRef`, `newTaskSubmissionRef`,
+`myTaskSubmissionsPageQuery` — that had zero remaining callers once their
+sole caller, the deleted `use-my-task-submissions.ts` hook, was gone).
+
+**Verified after cleanup**: exhaustive repo-wide grep for every deleted
+file's old import path, every deleted export name, `taskDailyCounters`,
+`taskCooldowns`, and the old automatic-daily-earning flow — zero
+remaining references anywhere in `src/`. Clean install
+(`rm -rf node_modules && npm install`) + `npm run build` both pass.
+`firestore.rules` dry-run compiled clean, then deployed. A focused smoke
+QA (task loading, task start, the 10s completion floor, dailyTaskProgress,
+the bundled reward claim, duplicate-claim rejection, and admin
+create/update/disable/re-enable task management) — 16/16 passed against
+the live, cleaned-up rules. No user data, production documents, or
+collections were touched — only unreachable rule branches and dead client
+code were removed.
+
+### Manual payment-screenshot cleanup system — 2026-07-28 — **COMPLETE, deployed, QA-passed (46/46)**
+
+Production-safe cleanup for the existing Base64-in-Firestore payment
+screenshot approach — **deliberately stays on Spark (free)**: no Firebase
+Storage, no Blaze billing, no Cloud Functions, no TTL, no paid service of
+any kind. Storage was confirmed never provisioned on this project before
+starting (`bucket.exists()` → false; Cloud Billing API never enabled) —
+this design keeps it that way.
+
+**Compression** (`src/lib/storage/payment-screenshots.ts`): JPEG/PNG/WebP
+only (SVG and everything else explicitly rejected); client-side canvas
+compression targets ≤300KB stored size (quality steps 0.85→0.5); if still
+over budget at the quality floor, the upload is **rejected** (asks for a
+smaller/clearer image) rather than silently exceeding the limit or
+degrading past readability.
+
+**Schema** (`DepositDoc`): added `screenshotSizeBytes`, `screenshotStatus`
+(`"available" | "deleted" | null`), `screenshotDeletedAt`,
+`screenshotDeletedBy`, `screenshotDeletionReason` — all additive, no
+existing field touched.
+
+**Admin controls**: View/Download/Delete-Permanently buttons on every
+deposit with a screenshot (`deposit-screenshot-controls.tsx`), shared
+between the existing deposit-review row and a new dedicated
+`/admin/screenshot-management` dashboard. Delete requires a two-step
+modal (strong warning + a second explicit "Yes, Permanently Delete
+Screenshot" button), with an ADDITIONAL warning when the deposit is still
+`"pending"`. Download converts the data URL to a real Blob client-side
+(`src/lib/download-data-url.ts`) with a meaningful filename
+(`payment-proof-{depositId}-{date}.jpg`) and correct extension.
+
+**Reminders**: a mild "Payment verified..." note appears immediately once
+a deposit is approved/rejected; it escalates to a prominent warning once
+24 hours have passed since the deposit's `updatedAt` (the exact instant
+`approveDeposit`/`rejectDeposit` already stamp — no new field needed).
+
+**Dashboard**: total screenshots, total storage used, average size,
+largest screenshot, oldest screenshot, and an "awaiting cleanup" count
+(approved/rejected deposits whose screenshot is still stored) — one
+unpaginated fetch of every deposit that ever had a screenshot
+(`depositsWithScreenshotHistoryQuery`), computed client-side; realistic
+volume stays small precisely because this dashboard exists. Bulk
+**selection** lets an admin reveal several screenshots at once for quick
+review — deliberately **view-only**; there is no bulk-delete action
+anywhere, confirmed both by code audit (grep for `bulk.*delete` etc. —
+zero matches outside explanatory comments) and by `deleteDepositScreenshotAction`'s
+single-`depositId` signature.
+
+**Audit trail**: every deletion writes an `activityLogs` entry
+(`action: "deposit.screenshot_deleted"`) containing the admin's UID, the
+deposit ID, a server timestamp, and the exact byte size removed — the
+image itself is never logged anywhere.
+
+**Firestore rules**: `deposits/{id}` create validation extended to
+require internally-consistent screenshot fields, a hard 450KB size
+ceiling, and — found and fixed during this work, before QA — a **MIME
+prefix regex check** (`^data:image/(jpeg|png|webp);base64,.*`) that the
+first pass of these rules omitted entirely (only `is string` + size were
+checked, meaning a hand-crafted request could originally smuggle in any
+content type, e.g. `text/html`, under the size cap). New
+`adminCanDeleteScreenshot()` function: admin-only, re-checks
+`screenshotStatus == "available"` server-side (the real double-deletion
+guard), touches only the 5 screenshot fields + `updatedAt`, stamps
+`screenshotDeletedBy`/`screenshotDeletedAt` to non-forgeable exact values.
+
+**QA — 46/46 passed**, live against production rules with disposable
+accounts: valid JPEG/PNG/WebP acceptance with correct size tracking; SVG
+and non-image data URLs rejected (post-fix); oversized (>450KB) rejected;
+admin read access; owner blocked from replacing or deleting a submitted
+screenshot; a hand-crafted create attempt with pre-set deletion-audit
+fields rejected; the full deletion workflow (screenshot cleared, deposit
+document and every financial/audit field — status, amount, referenceId,
+reviewedBy, senderAccountNumber, wallet balances — unchanged); the
+24-hour escalation arithmetic; the pending-deposit-warning condition;
+activity log contents (admin UID, deposit ID, timestamp, size, never the
+image); double-deletion rejected; dashboard stat formulas (total,
+average, awaiting-cleanup count correctly excluding still-pending
+deposits) verified against known fixture data. **Two-step modal
+confirmation and bulk-selection UI interactions are code-reviewed but not
+executable from this session's non-browser QA harness** — the
+backend/rules-enforced parts of every one of those flows were verified
+live. All QA data and disposable accounts cleaned up afterward — verified
+0 deposits and exactly the 3 pre-existing real users/admin remain in
+production.
+
+Lint, `tsc --noEmit`, and `next build` all pass clean (43 routes).
+`storage.rules`/`firebase.json` confirmed untouched (git diff empty) —
+no Storage, no Blaze, no paid service enabled at any point.
+
 ## Remaining before production
 
 1. **Nothing blocking is known to remain in the Withdrawal System** — it
@@ -459,9 +784,15 @@ Lint, `tsc --noEmit`, and `next build` all pass clean on the current tree.
 ## Exact next recommended task
 
 Nothing blocking or known-broken remains anywhere in the application.
-The platform is currently in a clean, single-admin-account state (see
-"Full account reset" above) — the next real task is whatever the next
-feature/growth priority is, or beginning to onboard real users again.
+The platform is currently live with the new task-reward/rotation/
+all-or-nothing-claim system and four production packages (Coca Basic/
+Standard/Premium/Super Premium) — two real users
+(`shahzaibpathan1243@gmail.com`, `jiniklo111@gmail.com`) have registered
+since the earlier full account reset but hold no package yet, so they are
+unaffected by this milestone. The next real task is whatever the next
+feature/growth priority is, or admin creating the first real batch of ad
+tasks (≥8 active tasks recommended, to fully cover the Super Premium
+tier's 8-per-day limit without repeats feeling sparse).
 
 ## Manual setup already done
 
@@ -482,3 +813,20 @@ feature/growth priority is, or beginning to onboard real users again.
   `bonusClaims` create-rule guard (recurring bonus-claim dedupe fix),
   deployed 2026-07-27, in two passes (initial version, then a read-rule
   null-dereference correction found during QA before either was relied on).
+- `firestore:rules` — the global task-reward/daily-task-rotation/
+  all-or-nothing-claim milestone (2026-07-28), deployed in four passes:
+  (1) the initial approved diff (new `taskCompletions`/`dailyTaskProgress`/
+  `taskRotations` collections, `settings/taskRewards`, the bundled claim
+  rules, trimmed `tasks/{taskId}`); (2) the `taskCompletions` read-rule
+  null-dereference fix found during QA; (3) the `dailyTaskQuotaMet`
+  single-fetch refactor; (4) the `transactions` self-service
+  `task_reward` branch fix. All four found-during-QA corrections are
+  documented in the milestone section above.
+- `firestore:rules` — the post-migration dead-code cleanup (2026-07-28):
+  removed the `taskDailyCounters`/`taskCooldowns` match blocks and blocked
+  `taskSubmissions` creates (`if false`). See the cleanup section above.
+- `firestore:rules` — the manual payment-screenshot cleanup milestone
+  (2026-07-28), deployed in two passes: (1) the approved
+  `deposits/{id}` schema validation + `adminCanDeleteScreenshot()`;
+  (2) the MIME-prefix regex fix found before QA. See the milestone
+  section above. No Storage/Blaze/paid service involved at any point.

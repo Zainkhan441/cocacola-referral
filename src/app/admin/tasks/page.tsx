@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useAdminTasks } from "@/features/admin/hooks/use-admin-tasks";
 import { TaskForm } from "@/features/admin/components/task-form";
 import { TaskList } from "@/features/admin/components/task-list";
+import { TaskRewardSettingsForm } from "@/features/admin/components/task-reward-settings-form";
 import type { TaskDoc } from "@/lib/firestore/tasks";
 
 export default function AdminTasksPage() {
@@ -37,6 +38,8 @@ export default function AdminTasksPage() {
           </Button>
         )}
       </div>
+
+      <TaskRewardSettingsForm />
 
       {formOpen && (
         <TaskForm initialTask={editingTask ?? undefined} onDone={closeForm} onCancel={closeForm} />

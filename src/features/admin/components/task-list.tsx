@@ -5,7 +5,7 @@ import { ClipboardList } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { setTaskStatusAction } from "@/features/admin/lib/task-actions";
 import type { TaskDoc, TaskStatus } from "@/lib/firestore/tasks";
@@ -93,10 +93,8 @@ export function TaskList({ tasks, loading, error, retry, onEdit }: TaskListProps
               </span>
             </div>
             <p className="text-xs text-white/50">
-              Reward {formatCurrency(task.rewardAmount)} · {task.frequency === "daily" ? "Daily" : "One-time"} ·
               Starts {formatDate(task.startDate)}
               {task.endDate ? ` · Ends ${formatDate(task.endDate)}` : ""}
-              {task.proofRequired ? " · Proof required" : ""}
             </p>
           </div>
 

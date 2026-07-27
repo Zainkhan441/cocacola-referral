@@ -1,3 +1,5 @@
+import { validateSafeUrl } from "@/features/admin/lib/cms-validation";
+
 export function validateTaskTitle(value: string): string | null {
   if (!value.trim()) return "Title is required.";
   if (value.trim().length < 2) return "That title looks too short.";
@@ -11,11 +13,6 @@ export function validateTaskDescription(value: string): string | null {
 
 export function validateTaskInstructions(value: string): string | null {
   if (!value.trim()) return "Instructions are required.";
-  return null;
-}
-
-export function validateRewardAmount(value: number): string | null {
-  if (!Number.isFinite(value) || value <= 0) return "Reward amount must be greater than 0.";
   return null;
 }
 
@@ -33,19 +30,12 @@ export function validateDateRange(startDate: Date | null, endDate: Date | null):
   return null;
 }
 
+// Any embeddable http(s) video URL is accepted — not restricted to a
+// specific host. The player (video-task-player.tsx) picks the strongest
+// available validation per platform at watch time (YouTube's real "ended"
+// event, or a time-based fallback for everything else), so the admin form
+// only needs to guard against unsafe/malformed URLs, same as every other
+// admin-authored link in this app.
 export function validateVideoUrl(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return "Video URL is required.";
-  try {
-    const url = new URL(trimmed);
-    const host = url.hostname.replace(/^www\./, "");
-    const isYoutube = host === "youtube.com" || host === "youtu.be" || host === "m.youtube.com";
-    const isTiktok = host === "tiktok.com" || host === "m.tiktok.com";
-    if (!isYoutube && !isTiktok) {
-      return "Video URL must be a YouTube or TikTok link.";
-    }
-  } catch {
-    return "Enter a valid URL.";
-  }
-  return null;
+  return validateSafeUrl(value, "Video URL");
 }

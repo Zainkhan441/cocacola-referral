@@ -4,7 +4,7 @@ import {
   Timestamp,
   type DocumentSnapshot,
 } from "firebase/firestore";
-import { depositDocRef } from "@/lib/firestore/deposits";
+import { depositDocRef, SCREENSHOT_DELETION_REASON } from "@/lib/firestore/deposits";
 import { userDocRef, type UserDoc } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
 import { newTransactionRef } from "@/lib/firestore/transactions";
@@ -14,7 +14,7 @@ import { teamMemberDocRef, buildTeamMemberData, REFERRAL_LEVELS, type TeamMember
 import { newPackagePurchaseRef } from "@/lib/firestore/package-purchases";
 import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatBytes } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 
 type ChainStep = {
@@ -415,5 +415,58 @@ export async function rejectDeposit(
     targetType: "deposit",
     targetId: depositId,
     details: "Rejected deposit request" + (note?.trim() ? ` — note: ${note.trim()}` : ""),
+  });
+}
+
+// Permanently removes ONLY the screenshot payload from a deposit — the
+// deposit document itself, its financial fields (amount, status,
+// reviewedBy, packageId, etc.), and its full audit trail are never touched.
+// This is manual, admin-triggered cleanup for the Spark-plan Base64-in-
+// Firestore approach (no Storage, no lifecycle jobs, no paid service) — an
+// admin who has already viewed/downloaded the proof clicks this to free up
+// document storage. Re-reads screenshotStatus at write time so a second,
+// concurrent, or accidental repeat click is a safe no-op rejection, never a
+// duplicate audit entry — the same "read-then-guard" idiom every other
+// state-transition in this app already uses.
+export async function deleteDepositScreenshotAction(
+  depositId: string,
+  reviewer: Reviewer,
+): Promise<void> {
+  const db = requireDb();
+  let capturedSizeBytes: number | null = null;
+
+  await runTransaction(db, async (transaction) => {
+    const depositSnap = await transaction.get(depositDocRef(db, depositId));
+    if (!depositSnap.exists()) {
+      throw new Error("This deposit request no longer exists.");
+    }
+    const deposit = depositSnap.data();
+    if (deposit.screenshotStatus !== "available" || !deposit.screenshotUrl) {
+      throw new Error("This screenshot has already been removed.");
+    }
+
+    transaction.update(depositDocRef(db, depositId), {
+      screenshotUrl: null,
+      screenshotStatus: "deleted",
+      screenshotDeletedAt: serverTimestamp(),
+      screenshotDeletedBy: reviewer.adminUid,
+      screenshotDeletionReason: SCREENSHOT_DELETION_REASON,
+      updatedAt: serverTimestamp(),
+    });
+
+    capturedSizeBytes = deposit.screenshotSizeBytes;
+  });
+
+  // The activity log never stores the image itself — only its size and the
+  // rest of this audit metadata (actor, target, timestamp via
+  // logActivity's own serverTimestamp()).
+  const sizeLabel = capturedSizeBytes != null ? formatBytes(capturedSizeBytes) : "unknown size";
+  await logActivity(db, {
+    actorUid: reviewer.adminUid,
+    actorName: reviewer.adminName,
+    action: "deposit.screenshot_deleted",
+    targetType: "deposit",
+    targetId: depositId,
+    details: `Action: Screenshot Deleted — deposit ${depositId}, size removed: ${sizeLabel} (deposit record preserved)`,
   });
 }

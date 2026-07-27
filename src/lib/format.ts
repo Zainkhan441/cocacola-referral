@@ -18,6 +18,16 @@ export function formatDate(timestamp: Timestamp): string {
   });
 }
 
+// Human-readable byte size for the admin screenshot-management dashboard's
+// storage total — this app's screenshots max out in the hundreds of KB, so
+// only KB/MB precision matters; bytes/GB are never realistically shown.
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(2)} MB`;
+}
+
 // Privacy-conscious display of a referred user's email in the Staff
 // Earning referral list — keeps the first character and domain, masks the
 // rest (e.g. "a***@example.com"), so a referrer can recognize who's who

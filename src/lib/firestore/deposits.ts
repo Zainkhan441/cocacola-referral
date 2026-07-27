@@ -22,6 +22,14 @@ const DEPOSIT_METHOD = "easypaisa" as const;
 export type DepositStatus = "pending" | "approved" | "rejected";
 export type DepositMethod = typeof DEPOSIT_METHOD;
 
+// "available" once a screenshot is attached at submission; "deleted" once an
+// admin has permanently removed it (see deleteDepositScreenshotAction). A
+// `null` screenshotStatus means no screenshot was ever attached (it's
+// optional at submission) — distinguished from "deleted" so the UI never
+// confuses "there was never one" with "there was one, now gone."
+export type DepositScreenshotStatus = "available" | "deleted";
+export const SCREENSHOT_DELETION_REASON = "admin_manual_cleanup" as const;
+
 export type DepositDoc = {
   uid: string;
   // Denormalized at submission time so the admin review queue can display
@@ -34,7 +42,27 @@ export type DepositDoc = {
   // the requester's own registration mobile number (users/{uid}.mobileNumber),
   // which may belong to someone else's account entirely.
   senderAccountNumber: string;
+  // A compressed JPEG/PNG/WebP data URL (see payment-screenshots.ts), or
+  // null if never attached, or null after an admin permanently deletes it
+  // (see screenshotStatus for which case applies). This project stays on
+  // the Spark (free) plan by design — no Firebase Storage, no paid service
+  // — so proof images live directly on this document, capped small at
+  // upload and admin-cleanable afterward so they never accumulate forever.
   screenshotUrl: string | null;
+  // Approximate decoded (pre-base64) byte size of screenshotUrl, set once
+  // at upload time — powers the admin screenshot-management dashboard's
+  // size total without re-deriving it from a live string length on every
+  // read. Null for any deposit with no screenshot, or one predating this
+  // field.
+  screenshotSizeBytes: number | null;
+  screenshotStatus: DepositScreenshotStatus | null;
+  // The four fields below are set ONLY by the admin-run
+  // deleteDepositScreenshotAction transaction, exactly once — never by the
+  // depositing user, never editable afterward (see firestore.rules
+  // adminCanDeleteScreenshot()).
+  screenshotDeletedAt: Timestamp | null;
+  screenshotDeletedBy: string | null;
+  screenshotDeletionReason: typeof SCREENSHOT_DELETION_REASON | null;
   // Set when this deposit is earmarked to purchase a package rather than
   // top up spendable balance. Approving it activates the package instead of
   // crediting walletBalance — see admin deposit-review logic.
@@ -122,6 +150,16 @@ export function pendingDepositsForPackageQuery(db: Firestore, packageId: string)
   );
 }
 
+// Every deposit that has ever had a screenshot attached (available or
+// already deleted) — feeds the admin screenshot-management dashboard's
+// stats and list. A single-field "in" filter needs no composite index.
+// Realistic volume for a "clean up regularly" workflow is small, so one
+// unpaginated fetch (mirroring packages/tasks elsewhere in this app) is
+// simpler and correct at this scale.
+export function depositsWithScreenshotHistoryQuery(db: Firestore): Query<DepositDoc> {
+  return query(depositsCollection(db), where("screenshotStatus", "in", ["available", "deleted"]));
+}
+
 type CreateDepositRequestInput = {
   uid: string;
   userName: string;
@@ -129,6 +167,7 @@ type CreateDepositRequestInput = {
   referenceId: string;
   senderAccountNumber: string;
   screenshotUrl: string | null;
+  screenshotSizeBytes: number | null;
   packageId: string | null;
 };
 
@@ -144,6 +183,11 @@ export function buildDepositData(input: CreateDepositRequestInput) {
     referenceId: input.referenceId,
     senderAccountNumber: input.senderAccountNumber,
     screenshotUrl: input.screenshotUrl,
+    screenshotSizeBytes: input.screenshotUrl ? input.screenshotSizeBytes : null,
+    screenshotStatus: input.screenshotUrl ? ("available" as const) : null,
+    screenshotDeletedAt: null,
+    screenshotDeletedBy: null,
+    screenshotDeletionReason: null,
     packageId: input.packageId,
     status: "pending" as const,
     reviewedBy: null,

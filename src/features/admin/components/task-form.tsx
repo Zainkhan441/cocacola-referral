@@ -13,13 +13,14 @@ import {
   validateTaskTitle,
   validateTaskDescription,
   validateTaskInstructions,
-  validateRewardAmount,
   validateMinPackagePrice,
   validateDateRange,
   validateVideoUrl,
 } from "@/features/admin/lib/task-validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
-import type { TaskDoc, TaskInput, TaskFrequency, TaskStatus } from "@/lib/firestore/tasks";
+import type { TaskDoc, TaskInput, TaskStatus } from "@/lib/firestore/tasks";
+
+const DEFAULT_INSTRUCTIONS = "Watch the advertisement till the end to earn today's reward.";
 
 type TaskFormProps = {
   initialTask?: TaskDoc;
@@ -32,7 +33,7 @@ function toDateInputValue(timestamp: Timestamp | null | undefined): string {
   return timestamp.toDate().toISOString().slice(0, 10);
 }
 
-type FieldErrors = Partial<Record<"title" | "description" | "instructions" | "rewardAmount" | "minPackagePrice" | "dateRange" | "videoUrl", string>>;
+type FieldErrors = Partial<Record<"title" | "description" | "instructions" | "minPackagePrice" | "dateRange" | "videoUrl", string>>;
 
 export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
   const { user } = useAuth();
@@ -41,10 +42,7 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
 
   const [title, setTitle] = useState(initialTask?.title ?? "");
   const [description, setDescription] = useState(initialTask?.description ?? "");
-  const [instructions, setInstructions] = useState(initialTask?.instructions ?? "");
-  const [rewardAmount, setRewardAmount] = useState(
-    initialTask ? String(initialTask.rewardAmount) : "",
-  );
+  const [instructions, setInstructions] = useState(initialTask?.instructions ?? DEFAULT_INSTRUCTIONS);
   const [packageRuleMode, setPackageRuleMode] = useState<"any" | "specific" | "minimum">(
     initialTask?.requiredPackageId
       ? "specific"
@@ -59,8 +57,6 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
   const [videoUrl, setVideoUrl] = useState(initialTask?.videoUrl ?? "");
   const [startDate, setStartDate] = useState(toDateInputValue(initialTask?.startDate));
   const [endDate, setEndDate] = useState(toDateInputValue(initialTask?.endDate));
-  const [frequency, setFrequency] = useState<TaskFrequency>(initialTask?.frequency ?? "one_time");
-  const [proofRequired, setProofRequired] = useState(initialTask?.proofRequired ?? false);
   const [status, setStatus] = useState<TaskStatus>(initialTask?.status ?? "active");
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -72,7 +68,6 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
     if (submitting || !user) return;
     setFormError(null);
 
-    const parsedReward = Number(rewardAmount);
     const parsedMinPrice = packageRuleMode === "minimum" && minPackagePrice ? Number(minPackagePrice) : null;
     const startDateObj = startDate ? new Date(startDate) : null;
     const endDateObj = endDate ? new Date(endDate) : null;
@@ -81,7 +76,6 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
       title: validateTaskTitle(title) ?? undefined,
       description: validateTaskDescription(description) ?? undefined,
       instructions: validateTaskInstructions(instructions) ?? undefined,
-      rewardAmount: validateRewardAmount(parsedReward) ?? undefined,
       minPackagePrice: validateMinPackagePrice(parsedMinPrice) ?? undefined,
       dateRange: validateDateRange(startDateObj, endDateObj) ?? undefined,
       videoUrl: validateVideoUrl(videoUrl) ?? undefined,
@@ -93,13 +87,10 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
       title: title.trim(),
       description: description.trim(),
       instructions: instructions.trim(),
-      rewardAmount: parsedReward,
       requiredPackageId: packageRuleMode === "specific" ? requiredPackageId || null : null,
       minPackagePrice: parsedMinPrice,
       startDate: Timestamp.fromDate(startDateObj as Date),
       endDate: endDateObj ? Timestamp.fromDate(endDateObj) : null,
-      frequency,
-      proofRequired,
       videoUrl: videoUrl.trim(),
       status,
     };
@@ -165,33 +156,12 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField
-          label="Reward amount (Rs)"
-          type="number"
-          inputMode="decimal"
-          value={rewardAmount}
-          onChange={(event) => setRewardAmount(event.target.value)}
-          error={fieldErrors.rewardAmount}
-        />
-
-        <FormField
-          label="Video URL (YouTube/TikTok)"
+          label="Video URL"
           type="url"
           value={videoUrl}
           onChange={(event) => setVideoUrl(event.target.value)}
           error={fieldErrors.videoUrl}
         />
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-white/80">Frequency</label>
-          <select
-            value={frequency}
-            onChange={(event) => setFrequency(event.target.value as TaskFrequency)}
-            className="rounded-xl border border-white/15 bg-surface-3 px-4 py-2.5 text-sm text-white transition-colors focus:border-brand focus:outline-none"
-          >
-            <option value="one_time">One-time</option>
-            <option value="daily">Daily</option>
-          </select>
-        </div>
 
         <FormField
           label="Start date"
@@ -262,16 +232,6 @@ export function TaskForm({ initialTask, onDone, onCancel }: TaskFormProps) {
         </div>
         {fieldErrors.minPackagePrice && <p className="text-xs text-red-400">{fieldErrors.minPackagePrice}</p>}
       </div>
-
-      <label className="flex items-center gap-2 text-sm text-white/80">
-        <input
-          type="checkbox"
-          checked={proofRequired}
-          onChange={(event) => setProofRequired(event.target.checked)}
-          className="h-4 w-4 rounded border-white/30 bg-surface-3 accent-brand"
-        />
-        Require a proof screenshot URL
-      </label>
 
       <div className="flex gap-3">
         <Button type="submit" size="md" disabled={submitting}>

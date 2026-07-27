@@ -13,19 +13,22 @@ import { typedCollection } from "@/lib/firestore/converter";
 
 const TASKS_PATH = "tasks";
 
-export type TaskFrequency = "one_time" | "daily";
 export type TaskStatus = "active" | "disabled" | "archived";
 
 // Admin-managed task definitions. Any signed-in user may read them (needed
 // to browse the Tasks page and to resolve their own eligibility); only an
 // admin may write. Never deleted — disabled/archived instead — so an old
-// taskSubmission's taskId always resolves to a real document.
+// taskCompletions/taskRotations reference always resolves to a real
+// document. There is no per-task reward, frequency, or proof-screenshot
+// field anymore — every task pays the single global reward
+// (settings/taskRewards.rewardPerAd, read live at claim time) and is
+// completed by watching its video to the end (see
+// src/lib/firestore/task-completions.ts), never by admin-reviewed proof.
 export type TaskDoc = {
   id: string;
   title: string;
   description: string;
   instructions: string;
-  rewardAmount: number;
   // Eligibility gate, mutually exclusive with minPackagePrice: the user's
   // active package must be exactly this one. Null means no exact-package
   // restriction (see minPackagePrice / the baseline "must have some active,
@@ -39,10 +42,9 @@ export type TaskDoc = {
   startDate: Timestamp;
   // Null means no end date (runs indefinitely until disabled/archived).
   endDate: Timestamp | null;
-  frequency: TaskFrequency;
-  proofRequired: boolean;
-  // The YouTube/TikTok video a user opens to complete this task. Required —
-  // every task is a "watch this video" task.
+  // Any embeddable video URL (not restricted to a specific host) — the
+  // player uses the real YouTube "ended" event when the host is YouTube,
+  // and a time-based fallback everywhere else. See video-task-player.tsx.
   videoUrl: string;
   status: TaskStatus;
   createdAt: Timestamp;
@@ -69,13 +71,10 @@ export type TaskInput = {
   title: string;
   description: string;
   instructions: string;
-  rewardAmount: number;
   requiredPackageId: string | null;
   minPackagePrice: number | null;
   startDate: Timestamp;
   endDate: Timestamp | null;
-  frequency: TaskFrequency;
-  proofRequired: boolean;
   videoUrl: string;
   status: TaskStatus;
 };

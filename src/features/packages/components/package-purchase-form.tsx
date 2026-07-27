@@ -59,14 +59,15 @@ export function PackagePurchaseForm({ pkg, onDone, onCancel }: PackagePurchaseFo
 
     setSubmitting(true);
     try {
-      const screenshotUrl = await screenshot.upload(user.uid);
+      const screenshotResult = await screenshot.upload(user.uid);
       await submitDepositRequest({
         uid: user.uid,
         userName: user.displayName ?? user.email ?? "Unknown",
         amount: pkg.price,
         referenceId: referenceId.trim(),
         senderAccountNumber: senderAccountNumber.trim(),
-        screenshotUrl,
+        screenshotUrl: screenshotResult?.dataUrl ?? null,
+        screenshotSizeBytes: screenshotResult?.sizeBytes ?? null,
         packageId: pkg.id,
       });
       setSuccess(true);
@@ -122,7 +123,7 @@ export function PackagePurchaseForm({ pkg, onDone, onCancel }: PackagePurchaseFo
             </label>
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               onChange={screenshot.handleFileChange}
               className="w-full rounded-xl border border-white/15 bg-surface-3 px-3 py-2.5 text-sm text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-brand file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
             />

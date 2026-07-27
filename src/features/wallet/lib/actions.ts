@@ -25,6 +25,7 @@ type SubmitDepositInput = {
   referenceId: string;
   senderAccountNumber: string;
   screenshotUrl: string | null;
+  screenshotSizeBytes: number | null;
   packageId: string | null;
 };
 

@@ -12,7 +12,7 @@ type PackageCardProps = {
 
 export function PackageCard({ pkg, isCurrent, disabledReason, onSelect }: PackageCardProps) {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
+    <div className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-5">
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-lg font-bold text-white">{pkg.name}</h3>
         <span
