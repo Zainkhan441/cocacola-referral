@@ -7,6 +7,9 @@ const VARIANT_STYLES = {
   outline:
     "border border-white/15 text-white hover:border-white/40 hover:bg-white/5",
   ghost: "text-white/80 hover:text-white hover:bg-white/5",
+  warning:
+    "border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20",
+  destructive: "bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/20",
 } as const;
 
 const SIZE_STYLES = {

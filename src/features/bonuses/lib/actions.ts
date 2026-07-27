@@ -1,9 +1,9 @@
-import { getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { bonusTierDocRef } from "@/lib/firestore/bonus-tiers";
 import { userDocRef } from "@/lib/firestore/users";
 import { bonusAwardDocRef } from "@/lib/firestore/bonus-awards";
-import { newBonusClaimRef, getMyPendingClaimForTier } from "@/lib/firestore/bonus-claims";
+import { newBonusClaimRef, pendingBonusClaimDocRef } from "@/lib/firestore/bonus-claims";
 import {
   getTeamTotalCount,
   getTeamActiveCount,
@@ -61,11 +61,6 @@ export async function submitBonusClaim(input: SubmitBonusClaimInput): Promise<vo
     }
   }
 
-  const alreadyPending = await getMyPendingClaimForTier(firestore, input.uid, input.tierId);
-  if (alreadyPending) {
-    throw new Error("You already have a claim for this bonus awaiting review.");
-  }
-
   const [totalTeam, activeTeam, levelCounts] = await Promise.all([
     getTeamTotalCount(firestore, input.uid),
     getTeamActiveCount(firestore, input.uid),
@@ -83,20 +78,44 @@ export async function submitBonusClaim(input: SubmitBonusClaimInput): Promise<vo
     throw new Error(`This bonus requires an active team of at least ${tier.requiredActiveTeam}.`);
   }
 
-  await setDoc(newBonusClaimRef(firestore), {
-    tierId: input.tierId,
-    tierName: tier.name,
-    bonusAmount: tier.bonusAmount,
-    recurrence: tier.recurrence,
-    uid: input.uid,
-    userName: input.userName,
-    directReferralsAtClaim: directReferrals,
-    totalTeamAtClaim: totalTeam,
-    activeTeamAtClaim: activeTeam,
-    packageIdAtClaim: user.package,
-    status: "pending",
-    reviewedBy: null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+  // Atomically checked-and-created, the same "read the lock, throw if it's
+  // already there, otherwise create both docs together" pattern already
+  // proven for withdrawals (see submitWithdrawalRequest) — the sole
+  // mechanism (both here and in firestore.rules' pendingBonusClaims block)
+  // preventing two pending claims for the same tier from ever coexisting,
+  // even under concurrent submission. Everything above this point (tier
+  // active, one-time-award, package/team-threshold checks) is still just an
+  // advisory pre-check for a clear error message, same as before.
+  const claimRef = newBonusClaimRef(firestore);
+  const pendingRef = pendingBonusClaimDocRef(firestore, input.uid, input.tierId);
+
+  await runTransaction(firestore, async (transaction) => {
+    const pendingSnap = await transaction.get(pendingRef);
+    if (pendingSnap.exists()) {
+      throw new Error("You already have a claim for this bonus awaiting review.");
+    }
+
+    transaction.set(pendingRef, {
+      uid: input.uid,
+      tierId: input.tierId,
+      claimId: claimRef.id,
+      createdAt: serverTimestamp(),
+    });
+    transaction.set(claimRef, {
+      tierId: input.tierId,
+      tierName: tier.name,
+      bonusAmount: tier.bonusAmount,
+      recurrence: tier.recurrence,
+      uid: input.uid,
+      userName: input.userName,
+      directReferralsAtClaim: directReferrals,
+      totalTeamAtClaim: totalTeam,
+      activeTeamAtClaim: activeTeam,
+      packageIdAtClaim: user.package,
+      status: "pending",
+      reviewedBy: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
   });
 }

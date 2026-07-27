@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { Briefcase, CheckCircle2 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
 import { usePackageLimits } from "@/features/wallet/hooks/use-package-limits";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { useAvailableTasks } from "@/features/tasks/hooks/use-available-tasks";
 import { useDailyTaskQuota } from "@/features/tasks/hooks/use-daily-task-quota";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
@@ -29,7 +29,6 @@ import type { TaskDoc } from "@/lib/firestore/tasks";
 // a user has a single daily destination instead of two separate pages.
 export default function WorkRoomPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
   const {
     profile,
     loading: profileLoading,
@@ -39,29 +38,16 @@ export default function WorkRoomPage() {
   const { packageInfo, loading: packageLoading } = usePackageLimits(profile?.package ?? null);
   const { tasks, loading: tasksLoading, error: tasksError, retry: retryTasks } = useAvailableTasks();
   const { usedToday, loading: quotaLoading } = useDailyTaskQuota();
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
   const [selectedTask, setSelectedTask] = useState<TaskDoc | null>(null);
   // One-time snapshot at mount, not re-read on every render — the actual
   // enforcement is server-side (firestore.rules), this is just UI gating.
   const [now] = useState(() => Date.now());
 
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
-
-  const hasQualifyingPackage = Boolean(
-    profile?.package &&
-      profile.packageExpiresAt &&
-      now < profile.packageExpiresAt.toMillis() &&
-      packageInfo?.isActive,
-  );
+  // A package being disabled only blocks NEW purchases — existing holders
+  // keep full task eligibility, so this does not depend on isActive.
+  const hasQualifyingPackage = Boolean(profile?.package);
 
   const dailyTaskLimit = packageInfo?.dailyTaskLimit ?? 0;
   const quotaReached = hasQualifyingPackage && usedToday >= dailyTaskLimit;
@@ -87,8 +73,6 @@ export default function WorkRoomPage() {
       </div>
     );
   }
-
-  const gateLoading = authLoading || !user || !user.emailVerified;
 
   return (
     <div className="min-h-screen bg-black">

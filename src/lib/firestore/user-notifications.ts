@@ -38,7 +38,8 @@ export type NotificationKind =
   | "deposit"
   | "withdrawal"
   | "task_submission"
-  | "admin_adjustment";
+  | "admin_adjustment"
+  | "account_status";
 
 export type UserNotificationDoc = {
   uid: string;

@@ -1,12 +1,20 @@
-export const ADMIN_NAV_LINKS = [
+// The pages an admin is expected to visit daily/frequently — shown as
+// direct pills. Everything else lives in the "More" menu so the primary row
+// stays scannable at a glance instead of growing unbounded as sections are
+// added; no page below became any less reachable, they just moved one tap
+// deeper.
+export const ADMIN_PRIMARY_NAV_LINKS = [
   { label: "Dashboard", href: "/admin" },
-  { label: "Packages", href: "/admin/packages" },
+  { label: "Users", href: "/admin/users" },
   { label: "Deposits", href: "/admin/deposits" },
   { label: "Withdrawals", href: "/admin/withdrawals" },
+] as const;
+
+export const ADMIN_MORE_NAV_LINKS = [
+  { label: "Packages", href: "/admin/packages" },
+  { label: "Payment Settings", href: "/admin/payment-settings" },
   { label: "Financial History", href: "/admin/transactions" },
-  { label: "Users", href: "/admin/users" },
   { label: "Earnings", href: "/admin/earnings" },
-  { label: "Referral Commission Settings", href: "/admin/referral-settings" },
   { label: "Referral Logs", href: "/admin/referral-logs" },
   { label: "Tasks", href: "/admin/tasks" },
   { label: "Task Submissions", href: "/admin/task-submissions" },

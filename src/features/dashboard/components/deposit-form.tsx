@@ -12,17 +12,18 @@ import { submitDepositRequest } from "@/features/wallet/lib/actions";
 import {
   validateDepositAmount,
   validateReferenceId,
-  validateScreenshotUrl,
+  validateSenderAccountNumber,
   DEPOSIT_MIN_AMOUNT,
   DEPOSIT_MAX_AMOUNT,
 } from "@/features/wallet/lib/validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
-import { EasypaisaPaymentDetails } from "@/features/wallet/components/easypaisa-payment-details";
+import { EasypaisaPaymentDetails } from "@/features/payments/components/easypaisa-payment-details";
+import { usePaymentScreenshotUpload } from "@/features/payments/hooks/use-payment-screenshot-upload";
 
 type FieldErrors = {
   amount?: string;
   referenceId?: string;
-  screenshotUrl?: string;
+  senderAccountNumber?: string;
 };
 
 // Wallet top-ups only — package purchases are a distinct flow (see
@@ -33,11 +34,12 @@ export function DepositForm() {
 
   const [amount, setAmount] = useState("");
   const [referenceId, setReferenceId] = useState("");
-  const [screenshotUrl, setScreenshotUrl] = useState("");
+  const [senderAccountNumber, setSenderAccountNumber] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const screenshot = usePaymentScreenshotUpload();
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,25 +52,28 @@ export function DepositForm() {
     const errors: FieldErrors = {
       amount: validateDepositAmount(parsedAmount) ?? undefined,
       referenceId: validateReferenceId(referenceId) ?? undefined,
-      screenshotUrl: validateScreenshotUrl(screenshotUrl) ?? undefined,
+      senderAccountNumber: validateSenderAccountNumber(senderAccountNumber) ?? undefined,
     };
     setFieldErrors(errors);
     if (Object.values(errors).some(Boolean)) return;
 
     setSubmitting(true);
     try {
+      const screenshotUrl = await screenshot.upload(user.uid);
       await submitDepositRequest({
         uid: user.uid,
         userName: user.displayName ?? user.email ?? "Unknown",
         amount: parsedAmount,
         referenceId: referenceId.trim(),
-        screenshotUrl: screenshotUrl.trim() || null,
+        senderAccountNumber: senderAccountNumber.trim(),
+        screenshotUrl,
         packageId: null,
       });
       setSuccess(true);
       setAmount("");
       setReferenceId("");
-      setScreenshotUrl("");
+      setSenderAccountNumber("");
+      screenshot.reset();
       setFieldErrors({});
     } catch (error) {
       setFormError(getAuthErrorMessage(error));
@@ -115,12 +120,34 @@ export function DepositForm() {
           error={fieldErrors.referenceId}
         />
         <FormField
-          label="Proof screenshot URL (optional)"
-          type="url"
-          value={screenshotUrl}
-          onChange={(event) => setScreenshotUrl(event.target.value)}
-          error={fieldErrors.screenshotUrl}
+          label="Sender Easypaisa number"
+          type="tel"
+          placeholder="03XXXXXXXXX"
+          value={senderAccountNumber}
+          onChange={(event) => setSenderAccountNumber(event.target.value)}
+          error={fieldErrors.senderAccountNumber}
         />
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-white/80">
+            Payment proof screenshot (optional)
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={screenshot.handleFileChange}
+            className="w-full rounded-xl border border-white/15 bg-surface-3 px-3 py-2.5 text-sm text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-brand file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+          />
+          {screenshot.error && <p className="text-xs text-red-400">{screenshot.error}</p>}
+          {screenshot.previewUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- local object-URL preview of a not-yet-uploaded file, not a Next-optimizable asset
+            <img
+              src={screenshot.previewUrl}
+              alt="Screenshot preview"
+              className="max-h-48 w-full rounded-xl border border-white/10 object-contain bg-black"
+            />
+          )}
+        </div>
 
         <Button type="submit" size="lg" disabled={submitting} className="mt-1">
           {submitting ? <Spinner /> : "Submit deposit request"}

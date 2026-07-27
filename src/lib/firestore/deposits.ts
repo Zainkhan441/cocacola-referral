@@ -30,6 +30,10 @@ export type DepositDoc = {
   amount: number;
   method: DepositMethod;
   referenceId: string;
+  // The Easypaisa number the payment was actually sent FROM — distinct from
+  // the requester's own registration mobile number (users/{uid}.mobileNumber),
+  // which may belong to someone else's account entirely.
+  senderAccountNumber: string;
   screenshotUrl: string | null;
   // Set when this deposit is earmarked to purchase a package rather than
   // top up spendable balance. Approving it activates the package instead of
@@ -105,11 +109,25 @@ export function depositsByStatusPageQuery(
       );
 }
 
+// Existence-check only (limit 1) — used by admin package deletion to refuse
+// deleting a package with a purchase still awaiting review (approving it
+// later would fail once the package document is gone). Requires a
+// composite index (packageId asc, status asc) — see firestore.indexes.json.
+export function pendingDepositsForPackageQuery(db: Firestore, packageId: string): Query<DepositDoc> {
+  return query(
+    depositsCollection(db),
+    where("packageId", "==", packageId),
+    where("status", "==", "pending"),
+    limit(1),
+  );
+}
+
 type CreateDepositRequestInput = {
   uid: string;
   userName: string;
   amount: number;
   referenceId: string;
+  senderAccountNumber: string;
   screenshotUrl: string | null;
   packageId: string | null;
 };
@@ -124,6 +142,7 @@ export function buildDepositData(input: CreateDepositRequestInput) {
     amount: input.amount,
     method: DEPOSIT_METHOD,
     referenceId: input.referenceId,
+    senderAccountNumber: input.senderAccountNumber,
     screenshotUrl: input.screenshotUrl,
     packageId: input.packageId,
     status: "pending" as const,

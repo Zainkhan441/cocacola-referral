@@ -7,19 +7,18 @@ const RECENT_PURCHASES_LIMIT = 20;
 // An immutable, append-only record of every package purchase ever
 // approved for a user — written once by the admin deposit-approval
 // transaction, never updated. This is the only place "always fresh"
-// package upgrades don't lose data: users/{uid}'s own package/activatedAt/
-// expiresAt fields are overwritten on every new purchase, so this
-// collection is what satisfies "preserve complete purchase history."
+// package upgrades don't lose data: users/{uid}'s own package/activatedAt
+// fields are overwritten on every new purchase, so this collection is what
+// satisfies "preserve complete purchase history." Packages never expire
+// (see PackageDoc) — there is no durationDays/expiresAt here.
 export type PackagePurchaseDoc = {
   uid: string;
   packageId: string;
   packageName: string;
   price: number;
-  durationDays: number;
   depositId: string;
   purchasedAt: Timestamp;
   activatedAt: Timestamp;
-  expiresAt: Timestamp;
   createdAt: Timestamp;
 };
 

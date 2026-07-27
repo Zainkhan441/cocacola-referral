@@ -56,6 +56,18 @@ export function newBonusClaimRef(db: Firestore) {
   return doc(bonusClaimsCollection(db));
 }
 
+// The one-doc-per-(uid, tierId) pending-claim lock — mirrors
+// pendingWithdrawalFieldFor's role for withdrawals, but as its own
+// deterministically-IDed document (since tierId is dynamic/unbounded,
+// unlike the two fixed withdrawal wallets) rather than a field on
+// users/{uid}. Created alongside a new bonusClaims doc in the same
+// transaction (submitBonusClaim) and deleted alongside its resolution
+// (approveBonusClaim/rejectBonusClaim) — see firestore.rules'
+// pendingBonusClaims match block for the full explanation.
+export function pendingBonusClaimDocRef(db: Firestore, uid: string, tierId: string) {
+  return doc(db, "pendingBonusClaims", `${uid}_${tierId}`);
+}
+
 // --- A user's own claim history ---
 
 // Requires a composite index (uid asc, createdAt desc) — see firestore.indexes.json.

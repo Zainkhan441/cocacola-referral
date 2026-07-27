@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { siteConfig } from "@/config/site";
 import { logout } from "@/features/auth/lib/actions";
-import { ADMIN_NAV_LINKS } from "@/features/admin/constants/nav";
+import { ADMIN_PRIMARY_NAV_LINKS, ADMIN_MORE_NAV_LINKS } from "@/features/admin/constants/nav";
 import { NotificationBell } from "@/features/notifications/components/notification-bell";
+import { MoreMenu } from "@/components/layout/more-menu";
 
 type AdminShellProps = {
   children: ReactNode;
@@ -39,8 +40,8 @@ export function AdminShell({ children }: AdminShellProps) {
         </div>
       </header>
 
-      <nav className="flex gap-1 overflow-x-auto border-b border-white/10 px-6 py-2">
-        {ADMIN_NAV_LINKS.map((link) => {
+      <nav className="flex items-center gap-1 overflow-x-auto border-b border-white/10 px-6 py-2 [mask-image:linear-gradient(to_right,transparent,black_16px,black_calc(100%-16px),transparent)] sm:[mask-image:none]">
+        {ADMIN_PRIMARY_NAV_LINKS.map((link) => {
           const isActive =
             link.href === "/admin" ? pathname === "/admin" : pathname.startsWith(link.href);
           return (
@@ -58,6 +59,7 @@ export function AdminShell({ children }: AdminShellProps) {
             </Link>
           );
         })}
+        <MoreMenu links={ADMIN_MORE_NAV_LINKS} pathname={pathname} />
       </nav>
 
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8">{children}</main>

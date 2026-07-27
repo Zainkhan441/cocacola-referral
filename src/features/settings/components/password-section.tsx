@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { FormField } from "@/components/ui/form-field";
+import { PasswordField } from "@/components/ui/password-field";
 import { changePasswordAction } from "@/features/settings/lib/actions";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 
@@ -64,23 +64,23 @@ export function PasswordSection() {
       {formError && <Alert variant="error">{formError}</Alert>}
       {success && <Alert variant="success">Password changed.</Alert>}
 
-      <FormField
+      <PasswordField
         label="Current password"
-        type="password"
+        autoComplete="current-password"
         value={currentPassword}
         onChange={(event) => setCurrentPassword(event.target.value)}
         error={fieldErrors.currentPassword}
       />
-      <FormField
+      <PasswordField
         label="New password"
-        type="password"
+        autoComplete="new-password"
         value={newPassword}
         onChange={(event) => setNewPassword(event.target.value)}
         error={fieldErrors.newPassword}
       />
-      <FormField
+      <PasswordField
         label="Confirm new password"
-        type="password"
+        autoComplete="new-password"
         value={confirmPassword}
         onChange={(event) => setConfirmPassword(event.target.value)}
         error={fieldErrors.confirmPassword}

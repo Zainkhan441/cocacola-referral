@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Payment proof screenshots (deposit + package-purchase requests).
+    // Write is restricted to the uploading user's own folder; read is left
+    // open so Admin → Deposits can render the proof image in a plain <img>
+    // without needing an authenticated fetch — the same trust model this
+    // app already used for the plain screenshotUrl text field it replaces
+    // (an arbitrary, unauthenticated URL rendered the same way). The
+    // download URL itself carries an unguessable token, so this is not a
+    // public directory listing.
+    match /paymentScreenshots/{uid}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if false;
+    }
+  }
+}

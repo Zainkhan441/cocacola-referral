@@ -66,11 +66,14 @@ export async function submitTaskCompletion(input: SubmitTaskCompletionInput): Pr
     }
     const user = userSnap.data();
 
-    if (!user.package || !user.packageExpiresAt || now >= user.packageExpiresAt.toMillis()) {
+    if (!user.package) {
       throw new Error("You need an active package to complete tasks.");
     }
+    // Existing holders are never affected by an admin later disabling this
+    // package template (isActive only blocks NEW purchases, enforced at
+    // deposit-creation time) — so task eligibility here does not depend on it.
     const packageSnap = await transaction.get(packageDocRef(firestore, user.package));
-    if (!packageSnap.exists() || !packageSnap.data().isActive) {
+    if (!packageSnap.exists()) {
       throw new Error("Your package is not currently eligible for tasks.");
     }
     if (task.requiredPackageId && user.package !== task.requiredPackageId) {
@@ -115,8 +118,11 @@ export async function submitTaskCompletion(input: SubmitTaskCompletionInput): Pr
 
     // Package-wise daily task count limit — caps total completions across
     // EVERY task (distinct from the per-task cooldown above), reset every
-    // rolling 24h window.
-    const dailyTaskLimit = packageSnap.data().dailyTaskLimit;
+    // rolling 24h window. This holder's own snapshotted allowance — never
+    // the package's current live limit, so a later admin edit can't
+    // retroactively change it. Falls back to the live value only for
+    // pre-migration accounts approved before this snapshot field existed.
+    const dailyTaskLimit = user.packageDailyTaskLimit ?? packageSnap.data().dailyTaskLimit;
     const counterRef = taskDailyCounterDocRef(firestore, input.uid);
     const counterSnap = await transaction.get(counterRef);
     const counterData = counterSnap.exists() ? counterSnap.data() : null;

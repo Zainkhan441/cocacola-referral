@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { db } from "@/lib/firebase/client";
+import { referralRewardDocRef } from "@/lib/firestore/referral-rewards";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { approveDeposit, rejectDeposit } from "@/features/admin/lib/deposit-actions";
 import type { DepositStatus } from "@/lib/firestore/deposits";
@@ -25,6 +28,28 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  // Admin visibility only — whether the referral commission for THIS
+  // specific approved purchase has already been paid (the
+  // referralRewards/{depositId} doc is the idempotency record itself, so
+  // its existence IS the answer). Never used to gate anything: duplicate
+  // payment is already prevented server-side in approveDeposit regardless
+  // of what this displays.
+  const [commissionPaid, setCommissionPaid] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!db || deposit.status !== "approved" || !deposit.packageId) return;
+    let cancelled = false;
+    getDoc(referralRewardDocRef(db, deposit.id))
+      .then((snap) => {
+        if (!cancelled) setCommissionPaid(snap.exists());
+      })
+      .catch(() => {
+        if (!cancelled) setCommissionPaid(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deposit.status, deposit.packageId, deposit.id]);
 
   function reviewer() {
     if (!user) throw new Error("Not signed in.");
@@ -67,8 +92,16 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
           <p className="text-xs text-white/50">
             {formatDate(deposit.createdAt)} · Ref: {deposit.referenceId}
           </p>
+          <p className="text-xs font-medium text-white/70">
+            Sender Easypaisa number: <span className="tabular-nums text-white">{deposit.senderAccountNumber}</span>
+          </p>
           {deposit.packageId && (
             <p className="text-xs font-medium text-brand-light">Package purchase request</p>
+          )}
+          {deposit.status === "approved" && deposit.packageId && commissionPaid != null && (
+            <p className="text-xs text-white/40">
+              Referral commission: {commissionPaid ? "paid" : "none (no referrer or Rs 0 commission)"}
+            </p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1">

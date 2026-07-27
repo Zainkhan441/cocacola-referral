@@ -41,7 +41,6 @@ export function validateScreenshotUrl(value: string): string | null {
 export function validateWithdrawalAmount(
   amount: number,
   availableBalance: number,
-  maxPerRequest: number | null,
   minAmount: number,
 ): string | null {
   if (!Number.isFinite(amount) || amount <= 0) return "Enter a valid amount.";
@@ -50,9 +49,6 @@ export function validateWithdrawalAmount(
   }
   if (amount > availableBalance) {
     return "Amount exceeds your available balance.";
-  }
-  if (maxPerRequest != null && amount > maxPerRequest) {
-    return `Your package allows a maximum of Rs ${maxPerRequest.toLocaleString()} per withdrawal.`;
   }
   return null;
 }
@@ -65,6 +61,18 @@ export function validateAccountName(value: string): string | null {
 
 export function validateAccountNumber(value: string): string | null {
   if (!value.trim()) return "Account number is required.";
+  if (!ACCOUNT_NUMBER_PATTERN.test(value.trim())) {
+    return "Enter an 11-digit mobile wallet number (e.g. 03XXXXXXXXX).";
+  }
+  return null;
+}
+
+// The Easypaisa number a deposit was sent FROM — same shape as
+// validateAccountNumber, kept as a separate named function since it
+// validates a conceptually distinct field (sender number vs. withdrawal
+// destination account).
+export function validateSenderAccountNumber(value: string): string | null {
+  if (!value.trim()) return "Sender Easypaisa number is required.";
   if (!ACCOUNT_NUMBER_PATTERN.test(value.trim())) {
     return "Enter an 11-digit mobile wallet number (e.g. 03XXXXXXXXX).";
   }

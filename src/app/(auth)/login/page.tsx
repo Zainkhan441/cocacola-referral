@@ -6,6 +6,7 @@ import Link from "next/link";
 import { AuthCard } from "@/features/auth/components/auth-card";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { FormField } from "@/components/ui/form-field";
+import { PasswordField } from "@/components/ui/password-field";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -53,8 +54,8 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
-      await loginWithEmail(email, password);
-      router.push("/dashboard");
+      const { isAdmin } = await loginWithEmail(email, password);
+      router.push(isAdmin ? "/admin" : "/packages");
     } catch (error) {
       setFormError(getAuthErrorMessage(error));
     } finally {
@@ -75,9 +76,8 @@ export default function LoginPage() {
           onChange={(event) => setEmail(event.target.value)}
           error={fieldErrors.email}
         />
-        <FormField
+        <PasswordField
           label="Password"
-          type="password"
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}

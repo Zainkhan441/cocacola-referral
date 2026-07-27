@@ -51,12 +51,6 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
     retry: retryEligibility,
   } = useWithdrawalEligibility(user?.uid ?? null);
 
-  const [now] = useState(() => Date.now());
-  const maxPerRequest = packageInfo?.withdrawalLimitPerRequest ?? null;
-  const packageExpired = Boolean(
-    profile.package && (!profile.packageExpiresAt || now >= profile.packageExpiresAt.toMillis()),
-  );
-
   if (profile.package == null) {
     return (
       <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
@@ -64,17 +58,6 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
         <Alert variant="info">
           You need an active package to request a withdrawal. Visit the Packages page to purchase
           one.
-        </Alert>
-      </div>
-    );
-  }
-
-  if (packageExpired) {
-    return (
-      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
-        <h2 className="text-sm font-semibold text-white">Withdraw</h2>
-        <Alert variant="info">
-          Your package has expired. Renew it from the Packages page to request withdrawals again.
         </Alert>
       </div>
     );
@@ -123,7 +106,6 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
         sourceWallet="current_balance"
         availableBalance={profile.currentBalance}
         minAmount={currentBalanceMinWithdraw}
-        maxPerRequest={maxPerRequest}
         blockedReason={
           profile.currentBalance < currentBalanceMinWithdraw
             ? `You need at least ${formatCurrency(currentBalanceMinWithdraw)} in Current Balance to withdraw.`
@@ -140,7 +122,6 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
         sourceWallet="coca_cola_earning"
         availableBalance={profile.cocaColaEarning}
         minAmount={COCA_COLA_MIN_WITHDRAW}
-        maxPerRequest={maxPerRequest}
         blockedReason={
           directActiveReferrals < cocaColaRequiredLevel
             ? `You need Level ${cocaColaRequiredLevel} (${cocaColaRequiredLevel} direct active referrals) to withdraw Coca-Cola Earning. You currently have ${directActiveReferrals}.`
@@ -163,7 +144,6 @@ type SingleWithdrawalFormProps = {
   sourceWallet: WithdrawalSourceWallet;
   availableBalance: number;
   minAmount: number;
-  maxPerRequest: number | null;
   blockedReason: string | null;
   progress?: BlockedProgress | null;
 };
@@ -179,7 +159,6 @@ function SingleWithdrawalForm({
   sourceWallet,
   availableBalance,
   minAmount,
-  maxPerRequest,
   blockedReason,
   progress,
 }: SingleWithdrawalFormProps) {
@@ -202,9 +181,7 @@ function SingleWithdrawalForm({
 
     const parsedAmount = Number(amount);
     const errors: FieldErrors = {
-      amount:
-        validateWithdrawalAmount(parsedAmount, availableBalance, maxPerRequest, minAmount) ??
-        undefined,
+      amount: validateWithdrawalAmount(parsedAmount, availableBalance, minAmount) ?? undefined,
       accountName: validateAccountName(accountName) ?? undefined,
       accountNumber: validateAccountNumber(accountNumber) ?? undefined,
     };
@@ -266,10 +243,7 @@ function SingleWithdrawalForm({
         </div>
       ) : (
         <>
-          <p className="text-xs text-white/50">
-            {maxPerRequest != null && `Up to ${formatCurrency(maxPerRequest)} per withdrawal. `}
-            Available balance: {formatCurrency(availableBalance)}.
-          </p>
+          <p className="text-xs text-white/50">Available balance: {formatCurrency(availableBalance)}.</p>
 
           <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
             {formError && <Alert variant="error">{formError}</Alert>}
@@ -284,7 +258,6 @@ function SingleWithdrawalForm({
               type="number"
               inputMode="decimal"
               min={minAmount}
-              max={maxPerRequest ?? undefined}
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
               error={fieldErrors.amount}

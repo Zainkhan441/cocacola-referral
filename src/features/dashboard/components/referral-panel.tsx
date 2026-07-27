@@ -8,6 +8,7 @@ import type { UserDoc } from "@/lib/firestore/users";
 import { formatCurrency } from "@/lib/format";
 import { getReferralLink } from "@/lib/referral/code";
 import { useReferralEarnings } from "@/features/user/hooks/use-referral-earnings";
+import { useDirectReferralCounts } from "@/features/user/hooks/use-direct-referral-counts";
 
 type ReferralPanelProps = {
   profile: UserDoc;
@@ -21,6 +22,14 @@ export function ReferralPanel({ profile }: ReferralPanelProps) {
     error: earningsError,
     retry: retryEarnings,
   } = useReferralEarnings();
+  // Live direct-referral counts — deliberately not profile.totalReferrals/
+  // activeReferrals, which are never written by anything and always read 0.
+  const {
+    counts: referralCounts,
+    loading: countsLoading,
+    error: countsError,
+    retry: retryCounts,
+  } = useDirectReferralCounts();
 
   async function handleCopy() {
     await navigator.clipboard.writeText(getReferralLink(profile.referralCode));
@@ -55,17 +64,35 @@ export function ReferralPanel({ profile }: ReferralPanelProps) {
           <p className="text-xs font-medium uppercase tracking-wide text-white/50">
             Total referrals
           </p>
-          <p className="text-lg font-bold text-white sm:text-xl">
-            {profile.totalReferrals.toLocaleString()}
-          </p>
+          {countsLoading ? (
+            <Skeleton className="h-6 w-10" />
+          ) : countsError ? (
+            <button
+              type="button"
+              onClick={retryCounts}
+              className="text-left text-xs text-red-400 underline decoration-dotted underline-offset-2"
+            >
+              Retry
+            </button>
+          ) : (
+            <p className="text-lg font-bold text-white sm:text-xl">
+              {(referralCounts?.total ?? 0).toLocaleString()}
+            </p>
+          )}
         </div>
         <div className="flex items-center justify-between sm:flex-col sm:items-start sm:gap-1">
           <p className="text-xs font-medium uppercase tracking-wide text-white/50">
             Active referrals
           </p>
-          <p className="text-lg font-bold text-white sm:text-xl">
-            {profile.activeReferrals.toLocaleString()}
-          </p>
+          {countsLoading ? (
+            <Skeleton className="h-6 w-10" />
+          ) : countsError ? (
+            <p className="text-xs text-white/40">—</p>
+          ) : (
+            <p className="text-lg font-bold text-white sm:text-xl">
+              {(referralCounts?.active ?? 0).toLocaleString()}
+            </p>
+          )}
         </div>
         <div className="flex items-center justify-between sm:flex-col sm:items-start sm:gap-1">
           <p className="text-xs font-medium uppercase tracking-wide text-white/50">

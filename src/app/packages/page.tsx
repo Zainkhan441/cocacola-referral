@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
+import { useAccountStatusGuard } from "@/features/auth/hooks/use-account-status-guard";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
@@ -35,6 +36,19 @@ export default function PackagesPage() {
   } = usePackagesCatalog("all");
 
   const [selectedPackage, setSelectedPackage] = useState<PackageDoc | null>(null);
+  const [justUnlocked, setJustUnlocked] = useState(false);
+
+  // /packages is the one page exempt from useAppAccessGate's package lock
+  // (it's where a locked user is SENT), but it must still block a
+  // suspended/archived/banned account — otherwise that restriction would
+  // have a hole exactly where a blocked user is most likely to land.
+  const { blocked: accountBlocked } = useAccountStatusGuard({
+    configured,
+    authLoading,
+    user,
+    profile,
+    profileLoading,
+  });
 
   useEffect(() => {
     if (!configured || authLoading) return;
@@ -42,10 +56,27 @@ export default function PackagesPage() {
       router.replace("/login");
       return;
     }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
   }, [configured, authLoading, user, router]);
+
+  // Tracks whether this user arrived here locked (no package yet) so an
+  // already-unlocked user browsing /packages to buy a second package never
+  // gets swept into this — only the very first approval fires it. Live via
+  // useUserProfile's onSnapshot listener, so no page refresh is needed: the
+  // instant an admin approves the purchase, this fires and redirects.
+  const wasLockedRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!profile) return;
+    if (wasLockedRef.current === null) {
+      wasLockedRef.current = profile.package == null;
+      return;
+    }
+    if (wasLockedRef.current && profile.package != null) {
+      wasLockedRef.current = false;
+      setJustUnlocked(true);
+      const timeout = setTimeout(() => router.push("/dashboard"), 1800);
+      return () => clearTimeout(timeout);
+    }
+  }, [profile, router]);
 
   if (!configured) {
     return (
@@ -55,7 +86,7 @@ export default function PackagesPage() {
     );
   }
 
-  const gateLoading = authLoading || !user || !user.emailVerified;
+  const gateLoading = authLoading || !user || accountBlocked;
 
   return (
     <div className="min-h-screen bg-black">
@@ -100,6 +131,12 @@ export default function PackagesPage() {
                 Choose a package to start earning daily rewards and referral bonuses.
               </p>
             </div>
+
+            {justUnlocked && (
+              <Alert variant="success">
+                Package activated! Unlocking your account and redirecting to your dashboard…
+              </Alert>
+            )}
 
             {profile.pendingPackagePurchaseId && (
               <Alert variant="info">

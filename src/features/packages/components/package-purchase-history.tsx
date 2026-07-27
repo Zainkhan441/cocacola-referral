@@ -23,7 +23,7 @@ export function PackagePurchaseHistory() {
       renderItem={(purchase) => (
         <HistoryListRow
           title={purchase.packageName}
-          subtitle={`Activated ${formatDate(purchase.activatedAt)} · Expires ${formatDate(purchase.expiresAt)}`}
+          subtitle={`Activated ${formatDate(purchase.activatedAt)}`}
           amount={purchase.price}
           direction="out"
           status="activated"

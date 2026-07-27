@@ -6,6 +6,7 @@ import Link from "next/link";
 import { AuthCard } from "@/features/auth/components/auth-card";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { FormField } from "@/components/ui/form-field";
+import { PasswordField } from "@/components/ui/password-field";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -16,6 +17,7 @@ import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 import {
   validateName,
   validateEmail,
+  validateMobileNumber,
   validatePassword,
   validateConfirmPassword,
 } from "@/features/auth/lib/validation";
@@ -23,6 +25,7 @@ import {
 type FieldErrors = {
   name?: string;
   email?: string;
+  mobileNumber?: string;
   password?: string;
   confirmPassword?: string;
 };
@@ -51,6 +54,7 @@ function RegisterForm() {
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -75,6 +79,7 @@ function RegisterForm() {
     const errors: FieldErrors = {
       name: validateName(name) ?? undefined,
       email: validateEmail(email) ?? undefined,
+      mobileNumber: validateMobileNumber(mobileNumber) ?? undefined,
       password: validatePassword(password) ?? undefined,
       confirmPassword:
         validateConfirmPassword(password, confirmPassword) ?? undefined,
@@ -87,8 +92,8 @@ function RegisterForm() {
 
     setSubmitting(true);
     try {
-      await registerWithEmail(name, email, password, referralCode);
-      router.push("/verify-email");
+      await registerWithEmail(name, email, mobileNumber, password, referralCode);
+      router.push("/packages");
     } catch (error) {
       setFormError(getAuthErrorMessage(error));
     } finally {
@@ -124,16 +129,23 @@ function RegisterForm() {
           error={fieldErrors.email}
         />
         <FormField
+          label="Mobile number"
+          type="tel"
+          autoComplete="tel"
+          placeholder="03XXXXXXXXX"
+          value={mobileNumber}
+          onChange={(event) => setMobileNumber(event.target.value)}
+          error={fieldErrors.mobileNumber}
+        />
+        <PasswordField
           label="Password"
-          type="password"
           autoComplete="new-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           error={fieldErrors.password}
         />
-        <FormField
+        <PasswordField
           label="Confirm password"
-          type="password"
           autoComplete="new-password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}

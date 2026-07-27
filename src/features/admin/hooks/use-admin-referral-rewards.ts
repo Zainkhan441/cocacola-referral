@@ -7,7 +7,6 @@ import {
   adminReferralRewardsPageQuery,
   REFERRAL_REWARDS_PAGE_SIZE,
   type ReferralRewardDoc,
-  type RewardLevelFilter,
 } from "@/lib/firestore/referral-rewards";
 import { useResetOnKeyChange } from "@/features/user/hooks/use-reset-on-key-change";
 
@@ -23,7 +22,7 @@ type UseAdminReferralRewardsResult = {
   retry: () => void;
 };
 
-export function useAdminReferralRewards(levelFilter: RewardLevelFilter): UseAdminReferralRewardsResult {
+export function useAdminReferralRewards(): UseAdminReferralRewardsResult {
   const canFetch = Boolean(db);
 
   const [rewards, setRewards] = useState<ReferralRewardWithId[]>([]);
@@ -34,7 +33,7 @@ export function useAdminReferralRewards(levelFilter: RewardLevelFilter): UseAdmi
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  const fetchKey = canFetch ? `${levelFilter}:${attempt}` : null;
+  const fetchKey = canFetch ? `${attempt}` : null;
   useResetOnKeyChange(fetchKey, () => {
     setLoading(Boolean(fetchKey));
     setError(null);
@@ -48,7 +47,7 @@ export function useAdminReferralRewards(levelFilter: RewardLevelFilter): UseAdmi
     const firestore = db;
 
     let cancelled = false;
-    getDocs(adminReferralRewardsPageQuery(firestore, levelFilter, null))
+    getDocs(adminReferralRewardsPageQuery(firestore, null))
       .then((snapshot) => {
         if (cancelled) return;
         setRewards(snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
@@ -65,13 +64,13 @@ export function useAdminReferralRewards(levelFilter: RewardLevelFilter): UseAdmi
     return () => {
       cancelled = true;
     };
-  }, [canFetch, levelFilter, attempt]);
+  }, [canFetch, attempt]);
 
   async function loadMore() {
     if (!db || !cursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const snapshot = await getDocs(adminReferralRewardsPageQuery(db, levelFilter, cursor));
+      const snapshot = await getDocs(adminReferralRewardsPageQuery(db, cursor));
       setRewards((prev) => [...prev, ...snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }))]);
       setCursor(snapshot.docs.at(-1) ?? cursor);
       setHasMore(snapshot.docs.length === REFERRAL_REWARDS_PAGE_SIZE);

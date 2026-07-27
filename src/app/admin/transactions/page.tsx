@@ -10,6 +10,7 @@ import { StatusFilterTabs } from "@/features/admin/components/status-filter-tabs
 import { LoadMoreButton } from "@/features/admin/components/load-more-button";
 import { HistoryListRow } from "@/features/dashboard/components/history-card";
 import { WALLET_FIELD_LABELS } from "@/lib/wallet-labels";
+import { transactionDirectionFor } from "@/lib/transaction-direction";
 import { formatDate } from "@/lib/format";
 import type { TransactionTypeFilter } from "@/lib/firestore/transactions";
 
@@ -24,15 +25,6 @@ const TYPE_OPTIONS: ReadonlyArray<{ label: string; value: TransactionTypeFilter 
   { label: "Bonuses", value: "bonus_reward" },
   { label: "Admin adjustments", value: "admin_adjustment" },
 ];
-
-// Outbound money (leaves the platform / leaves this user's wallet toward
-// another) — every other type is inbound-or-neutral for display purposes.
-// admin_adjustment can be either direction in reality, but its own
-// description text already says "increased"/"decreased" so it's shown
-// neutrally (no forced sign) here to avoid implying the wrong direction.
-function directionFor(type: TransactionTypeFilter): "in" | "out" {
-  return type === "withdrawal" ? "out" : "in";
-}
 
 const STATUS_BADGE = "border-white/15 bg-white/5 text-white/70";
 
@@ -91,7 +83,7 @@ export default function AdminTransactionsPage() {
                     transaction.wallet ? ` · ${WALLET_FIELD_LABELS[transaction.wallet]}` : ""
                   }${transaction.referenceId ? ` · Ref: ${transaction.referenceId}` : ""}`}
                   amount={transaction.amount}
-                  direction={directionFor(transaction.type)}
+                  direction={transactionDirectionFor(transaction)}
                   status={transaction.status}
                   statusClassName={STATUS_BADGE}
                 />

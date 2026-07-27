@@ -22,7 +22,6 @@ type WalletAdjustmentFormProps = {
 const FIELD_OPTIONS: ReadonlyArray<{ label: string; value: AdjustableWalletField }> = [
   { label: "Current Balance", value: "currentBalance" },
   { label: "Coca-Cola Earning", value: "cocaColaEarning" },
-  { label: "Staff Earning", value: "staffEarning" },
 ];
 
 export function WalletAdjustmentForm({ uid, userName, reviewer, onAdjusted }: WalletAdjustmentFormProps) {

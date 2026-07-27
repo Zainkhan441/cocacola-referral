@@ -10,21 +10,20 @@ import { LoadMoreButton } from "@/features/admin/components/load-more-button";
 import { REFERRAL_LEVELS } from "@/lib/firestore/team-members";
 import type { TeamLevelFilter } from "@/lib/firestore/team-members";
 
-type StatusFilter = "all" | "active" | "expired" | "none";
+type StatusFilter = "all" | "active" | "none";
 
 export function TeamMemberList() {
   const [levelFilter, setLevelFilter] = useState<TeamLevelFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [now] = useState(() => Date.now());
   const { members, loading, loadingMore, error, hasMore, loadMore, retry } =
     useTeamMembers(levelFilter);
 
+  // Packages never expire — "active" is simply whether a package is
+  // currently assigned at all (see team-members.ts).
   const filteredMembers = members.filter((member) => {
     if (statusFilter === "all") return true;
-    const isActive = member.packageExpiresAt != null && now < member.packageExpiresAt.toMillis();
     if (statusFilter === "none") return member.packageId == null;
-    if (statusFilter === "active") return member.packageId != null && isActive;
-    return member.packageId != null && !isActive;
+    return member.packageId != null;
   });
 
   return (
@@ -53,7 +52,6 @@ export function TeamMemberList() {
           >
             <option value="all">All statuses</option>
             <option value="active">Active</option>
-            <option value="expired">Expired</option>
             <option value="none">No package</option>
           </select>
         </div>
@@ -89,7 +87,7 @@ export function TeamMemberList() {
       {!loading && !error && filteredMembers.length > 0 && (
         <div className="flex flex-col gap-3">
           {filteredMembers.map((member) => (
-            <TeamMemberRow key={member.id} member={member} now={now} />
+            <TeamMemberRow key={member.id} member={member} />
           ))}
           <LoadMoreButton hasMore={hasMore} loading={loadingMore} onClick={loadMore} />
         </div>

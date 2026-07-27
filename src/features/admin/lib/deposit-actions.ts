@@ -8,62 +8,68 @@ import { depositDocRef } from "@/lib/firestore/deposits";
 import { userDocRef, type UserDoc } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
 import { newTransactionRef } from "@/lib/firestore/transactions";
-import { packageDocRef, type PackageDoc } from "@/lib/firestore/packages";
+import { packageDocRef } from "@/lib/firestore/packages";
 import { referralRewardDocRef } from "@/lib/firestore/referral-rewards";
-import {
-  referralLevelSettingDocRef,
-  REFERRAL_LEVELS,
-  type ReferralLevelSettingDoc,
-} from "@/lib/firestore/referral-settings";
-import { teamMemberDocRef, buildTeamMemberData, type TeamMemberDoc } from "@/lib/firestore/team-members";
+import { teamMemberDocRef, buildTeamMemberData, REFERRAL_LEVELS, type TeamMemberDoc } from "@/lib/firestore/team-members";
 import { newPackagePurchaseRef } from "@/lib/firestore/package-purchases";
 import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 type ChainStep = {
   level: number;
   ancestorUid: string;
   ancestorData: UserDoc;
-  ancestorPackageSnap: DocumentSnapshot<PackageDoc> | null;
   teamMemberSnap: DocumentSnapshot<TeamMemberDoc>;
-  levelSettingSnap: DocumentSnapshot<ReferralLevelSettingDoc>;
 };
 
 // Approves a pending deposit: credits the wallet (both users/{uid} and the
 // mirrored wallets/{uid}), writes one completed ledger transaction, and — if
 // the deposit was earmarked for a package — activates that package instead
 // of crediting spendable balance, records the purchase in the permanent
-// packagePurchases history, and pays out the 12-level referral chain below,
-// all in one atomic transaction so a mid-way failure can never leave any of
-// this out of sync. Re-reads the deposit's own pending state at write time,
-// so two concurrent approvals of the same request can't both succeed.
+// packagePurchases history, and pays a flat referral commission to the
+// purchaser's DIRECT referrer only (not a multi-level payout), all in one
+// atomic transaction so a mid-way failure can never leave any of this out of
+// sync. Re-reads the deposit's own pending state at write time, so two
+// concurrent approvals of the same request can't both succeed.
 //
 // Package activation is "always fresh": activatedAt = this approval's own
-// instant, expiresAt = activatedAt + the package's durationDays, always —
-// any remaining time on a previous package is discarded, never stacked or
-// extended, whether this is a first purchase, a renewal, or an upgrade.
+// instant, always — any previous package assignment is discarded, never
+// stacked or extended. Packages never expire (packageExpiresAt is always
+// null going forward) — a package only stops qualifying a user if an admin
+// disables it (package.isActive = false) or the user purchases a different
+// one.
 //
-// Referral payout: walks the purchaser's users/{uid}.referredBy chain up to
-// 12 levels, crediting each qualifying ancestor's Staff Earning wallet
-// (never Current Balance/Coca-Cola Earning/Deposit — commissions are
-// entirely separate money). For each ancestor reached, their teamMembers record
-// for this purchaser is synced with the new package/expiry (regardless of
-// whether a reward is paid) so the ancestor's Team page always reflects real
-// package state. A reward is paid at a level only if: that level is enabled
-// in referralLevelSettings (a missing level document is treated as
-// disabled, never defaulted to a hardcoded rate), AND the ancestor
-// themselves has an active, unexpired, still-enabled package at this exact
-// approval instant — if not, that level is skipped with no redirect to
-// another level (per explicit product decision). Reward amount is
-// percentage-of-package-price or a fixed Rs amount, per that level's
-// configured rewardType, rounded to the nearest rupee; a reward that rounds
-// to 0 is not written. Each reward's Firestore doc id is deterministic
-// (`${depositId}_L${level}`), so a retried transaction attempt can never
-// double-pay the same level for the same purchase.
+// Referral commission: paid once, to the purchaser's own users/{uid}.referredBy
+// (level 1 only — never walked further up the chain), a flat Rs amount from
+// the purchased package's own referralCommission field. No condition on the
+// referrer's own package status — the commission is paid whenever a direct
+// referral's package purchase is approved, full stop. The ancestor chain is
+// still walked up to REFERRAL_LEVELS beyond that, but only to keep each
+// ancestor's teamMembers "downline" record in sync for display — that sync
+// is unconditional and carries no money.
+//
+// FINAL BUSINESS RULE: Staff Earning is not a separate wallet. The
+// commission is credited directly into the direct referrer's Current
+// Balance (real, withdrawable money, subject to the exact same Rs 500
+// minimum/no-Level-requirement withdrawal rules as any other Current
+// Balance credit) — never into users/{uid}.staffEarning, which this
+// function no longer writes to at all. "Staff Earning" as a UI concept is
+// now purely a reporting view computed from the referralRewards collection
+// and each teamMembers record's own commissionEarned running total, so
+// there is exactly one place money is ever added, but it can be displayed
+// from two different queries.
+//
+// Idempotency: the referralRewards/{depositId} document — id is literally
+// the depositId — can only ever be created once (firestore.rules denies any
+// update/delete on it), so even a hand-crafted duplicate write attempt is
+// rejected at the rules layer. On top of that (belt-and-suspenders, per
+// explicit product requirement), this transaction explicitly reads that
+// document first and skips crediting entirely if it already exists — so a
+// retried/duplicated approveDeposit call is a safe no-op for the commission,
+// independent of (in addition to) the deposit.status "already reviewed"
+// guard above.
 export async function approveDeposit(
   depositId: string,
   reviewer: Reviewer,
@@ -76,8 +82,8 @@ export async function approveDeposit(
 
   let capturedAmount = 0;
   let capturedPackageName: string | null = null;
-  let capturedReferralTotal = 0;
-  let capturedReferralLevelsPaid = 0;
+  let capturedReferralCommission = 0;
+  let capturedReferralPaid = false;
 
   await runTransaction(db, async (transaction) => {
     const depositSnap = await transaction.get(depositDocRef(db, depositId));
@@ -97,23 +103,31 @@ export async function approveDeposit(
     const user = userSnap.data();
 
     let packageName: string | null = null;
-    let durationDays = 0;
+    let referralCommission = 0;
+    // Snapshotted onto the user doc below (packageDailyEarning/
+    // packageDailyTaskLimit) so a later admin edit to this package's
+    // template never retroactively changes what THIS holder already earns —
+    // see UserDoc's doc comment on those two fields.
+    let packageDailyEarning: number | null = null;
+    let packageDailyTaskLimit: number | null = null;
     if (deposit.packageId) {
       const packageSnap = await transaction.get(packageDocRef(db, deposit.packageId));
       if (!packageSnap.exists() || !packageSnap.data().isActive) {
         throw new Error("The selected package is no longer available.");
       }
-      packageName = packageSnap.data().name;
-      durationDays = packageSnap.data().durationDays;
+      const pkg = packageSnap.data();
+      packageName = pkg.name;
+      referralCommission = pkg.referralCommission;
+      packageDailyEarning = pkg.dailyEarning;
+      packageDailyTaskLimit = pkg.dailyTaskLimit;
     }
 
     const activatedAt = Timestamp.now();
-    const expiresAt = deposit.packageId
-      ? Timestamp.fromMillis(activatedAt.toMillis() + durationDays * MS_PER_DAY)
-      : null;
 
     // --- Read phase: walk the referral chain (reads only, no writes yet —
-    // Firestore transactions require every read before any write). ---
+    // Firestore transactions require every read before any write). Only
+    // chain[0] (the direct referrer) is ever paid; the rest of the chain is
+    // walked purely to keep each ancestor's teamMembers display in sync. ---
     const chain: ChainStep[] = [];
     if (deposit.packageId) {
       let currentUid: string | null = user.referredBy;
@@ -123,25 +137,25 @@ export async function approveDeposit(
         if (!ancestorSnap.exists()) break;
         const ancestorData = ancestorSnap.data();
 
-        const ancestorPackageSnap = ancestorData.package
-          ? await transaction.get(packageDocRef(db, ancestorData.package))
-          : null;
         const teamMemberSnap = await transaction.get(teamMemberDocRef(db, currentUid, deposit.uid));
-        const levelSettingSnap = await transaction.get(referralLevelSettingDocRef(db, level));
 
-        chain.push({
-          level,
-          ancestorUid: currentUid,
-          ancestorData,
-          ancestorPackageSnap,
-          teamMemberSnap,
-          levelSettingSnap,
-        });
+        chain.push({ level, ancestorUid: currentUid, ancestorData, teamMemberSnap });
 
         currentUid = ancestorData.referredBy;
         level++;
       }
     }
+
+    // Idempotency belt-and-suspenders: read the commission record for THIS
+    // deposit before any write. deposit.status already prevents a retried
+    // call from reaching this point at all (see the "already reviewed"
+    // throw above), and the referralRewards/{depositId} doc id makes a
+    // duplicate create impossible at the rules layer regardless — this read
+    // is a third, independent guard against ever crediting twice.
+    const referralRewardRef = referralRewardDocRef(db, depositId);
+    const existingReferralRewardSnap = deposit.packageId
+      ? await transaction.get(referralRewardRef)
+      : null;
 
     // --- Write phase ---
     if (deposit.packageId) {
@@ -149,7 +163,9 @@ export async function approveDeposit(
         package: deposit.packageId,
         packagePurchasedAt: deposit.createdAt,
         packageActivatedAt: activatedAt,
-        packageExpiresAt: expiresAt,
+        packageExpiresAt: null,
+        packageDailyEarning,
+        packageDailyTaskLimit,
         pendingPackagePurchaseId: null,
         // "Always fresh" activation resets the daily-earning gate too — the
         // first automatic Coca-Cola Earning credit becomes eligible at the
@@ -165,11 +181,9 @@ export async function approveDeposit(
         packageId: deposit.packageId,
         packageName,
         price: deposit.amount,
-        durationDays,
         depositId,
         purchasedAt: deposit.createdAt,
         activatedAt,
-        expiresAt,
         createdAt: serverTimestamp(),
       });
     } else {
@@ -220,22 +234,39 @@ export async function approveDeposit(
       }),
     );
 
-    let referralTotal = 0;
-    let referralLevelsPaid = 0;
+    // Referral commission eligibility: the direct referrer (chain[0]) only,
+    // a flat amount from the package itself — never walked further up the
+    // chain — and only once per deposit (see existingReferralRewardSnap
+    // above).
+    const directReferrer = chain.length > 0 ? chain[0] : null;
+    const commissionPayable =
+      deposit.packageId != null &&
+      directReferrer != null &&
+      referralCommission > 0 &&
+      !existingReferralRewardSnap?.exists();
 
+    // Sync every ancestor's teamMembers "downline" record regardless of
+    // whether a reward is paid — this is a display-only view of the
+    // network, independent of the referral commission below. Only the
+    // direct referrer's (level 1) record additionally gets the
+    // packagePrice/packageApprovedAt/commissionEarned fields the Staff
+    // Earning referral list displays, since only level 1 is ever paid.
     for (const step of chain) {
-      // `chain` is only ever populated inside the `if (deposit.packageId)`
-      // branch above, so this is always true here — narrows the type for
-      // the referralRewards write below, which requires a non-null packageId.
       if (!deposit.packageId) continue;
 
-      // Always sync this purchaser's package info under this ancestor's team
-      // view, regardless of whether a reward is paid at this level.
+      const isDirectReferrer = step.level === 1;
+      const commissionForThisMember = isDirectReferrer && commissionPayable ? referralCommission : 0;
+
       if (step.teamMemberSnap.exists()) {
         transaction.update(step.teamMemberSnap.ref, {
           packageId: deposit.packageId,
           packageName,
-          packageExpiresAt: expiresAt,
+          packageExpiresAt: null,
+          ...(isDirectReferrer && {
+            packagePrice: deposit.amount,
+            packageApprovedAt: activatedAt,
+            commissionEarned: (step.teamMemberSnap.data()?.commissionEarned ?? 0) + commissionForThisMember,
+          }),
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -245,84 +276,72 @@ export async function approveDeposit(
             ancestorUid: step.ancestorUid,
             memberUid: deposit.uid,
             memberName: deposit.userName,
+            memberEmail: user.email,
             level: step.level,
             joinedAt: user.createdAt,
             packageId: deposit.packageId,
             packageName,
-            packageExpiresAt: expiresAt,
+            packageExpiresAt: null,
+            packagePrice: isDirectReferrer ? deposit.amount : null,
+            packageApprovedAt: isDirectReferrer ? activatedAt : null,
+            commissionEarned: commissionForThisMember,
           }),
         );
       }
+    }
 
-      const levelSetting = step.levelSettingSnap.exists() ? step.levelSettingSnap.data() : null;
-      if (!levelSetting || !levelSetting.enabled) continue;
+    // Referral commission: credited into the direct referrer's Current
+    // Balance — the ONLY wallet this money ever lands in (see this
+    // function's top-level doc comment for the full "Staff Earning is not
+    // a separate wallet" rationale). referralRewards is the reporting
+    // record of where it came from, not a second pool of money.
+    if (commissionPayable && directReferrer && deposit.packageId && packageName) {
+      const ancestorData = directReferrer.ancestorData;
+      const newCurrentBalance = ancestorData.currentBalance + referralCommission;
+      const newTotalEarnings = ancestorData.totalEarnings + referralCommission;
 
-      const ancestorData = step.ancestorData;
-      const ancestorQualified =
-        ancestorData.package != null &&
-        ancestorData.packageExpiresAt != null &&
-        ancestorData.packageExpiresAt.toMillis() > activatedAt.toMillis() &&
-        step.ancestorPackageSnap != null &&
-        step.ancestorPackageSnap.exists() &&
-        step.ancestorPackageSnap.data().isActive === true;
-      if (!ancestorQualified) continue;
-
-      const rawAmount =
-        levelSetting.rewardType === "percentage"
-          ? (deposit.amount * levelSetting.rewardValue) / 100
-          : levelSetting.rewardValue;
-      const amount = Math.round(rawAmount);
-      if (amount <= 0) continue;
-
-      const newStaffEarning = ancestorData.staffEarning + amount;
-      const newTotalEarnings = ancestorData.totalEarnings + amount;
-
-      transaction.update(userDocRef(db, step.ancestorUid), {
-        staffEarning: newStaffEarning,
+      transaction.update(userDocRef(db, directReferrer.ancestorUid), {
+        currentBalance: newCurrentBalance,
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });
-      transaction.update(walletDocRef(db, step.ancestorUid), {
-        staffEarning: newStaffEarning,
+      transaction.update(walletDocRef(db, directReferrer.ancestorUid), {
+        currentBalance: newCurrentBalance,
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });
-      const referralRewardRef = referralRewardDocRef(db, depositId, step.level);
+
       transaction.set(referralRewardRef, {
-        earnerUid: step.ancestorUid,
+        earnerUid: directReferrer.ancestorUid,
         earnerName: ancestorData.fullName,
         sourceUid: deposit.uid,
         sourceName: deposit.userName,
-        level: step.level,
-        amount,
-        rewardType: levelSetting.rewardType,
-        rewardValue: levelSetting.rewardValue,
+        amount: referralCommission,
         packageId: deposit.packageId,
+        packageName,
         packagePrice: deposit.amount,
         depositId,
         status: "credited",
         createdAt: serverTimestamp(),
       });
       transaction.set(newTransactionRef(db), {
-        uid: step.ancestorUid,
+        uid: directReferrer.ancestorUid,
         userName: ancestorData.fullName,
         type: "referral_reward",
-        amount,
+        amount: referralCommission,
         status: "completed",
-        description: `Level ${step.level} referral bonus from ${deposit.userName}'s package purchase`,
-        wallet: "staffEarning",
+        description: `Referral commission from ${deposit.userName}'s package purchase`,
+        wallet: "currentBalance",
         referenceId: referralRewardRef.id,
         createdAt: serverTimestamp(),
       });
 
-      referralTotal += amount;
-      referralLevelsPaid += 1;
+      capturedReferralCommission = referralCommission;
+      capturedReferralPaid = true;
     }
 
     capturedAmount = deposit.amount;
     capturedPackageName = packageName;
-    capturedReferralTotal = referralTotal;
-    capturedReferralLevelsPaid = referralLevelsPaid;
   });
 
   await logActivity(db, {
@@ -334,8 +353,8 @@ export async function approveDeposit(
     details:
       (capturedPackageName
         ? `Approved a ${formatCurrency(capturedAmount)} deposit and activated package "${capturedPackageName}"${
-            capturedReferralLevelsPaid > 0
-              ? ` (referral bonuses paid across ${capturedReferralLevelsPaid} level(s): ${formatCurrency(capturedReferralTotal)})`
+            capturedReferralPaid
+              ? ` (referral commission paid: ${formatCurrency(capturedReferralCommission)})`
               : ""
           }`
         : `Approved a ${formatCurrency(capturedAmount)} deposit`) + (note?.trim() ? ` — note: ${note.trim()}` : ""),

@@ -49,7 +49,6 @@ async function resolveRecipientUids(
     return checks.filter((uid): uid is string => uid !== null);
   }
 
-  const now = Date.now();
   const recipients: string[] = [];
   let cursor: QueryDocumentSnapshot<UserDoc> | null = null;
 
@@ -61,11 +60,7 @@ async function resolveRecipientUids(
     for (const docSnap of snapshot.docs) {
       const user = docSnap.data();
       if (!user.notificationsEnabled) continue;
-      if (input.audienceType === "active_package") {
-        const qualifies =
-          user.package != null && user.packageExpiresAt != null && user.packageExpiresAt.toMillis() > now;
-        if (!qualifies) continue;
-      }
+      if (input.audienceType === "active_package" && user.package == null) continue;
       recipients.push(user.uid);
     }
 

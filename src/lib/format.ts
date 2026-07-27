@@ -17,3 +17,14 @@ export function formatDate(timestamp: Timestamp): string {
     year: "numeric",
   });
 }
+
+// Privacy-conscious display of a referred user's email in the Staff
+// Earning referral list — keeps the first character and domain, masks the
+// rest (e.g. "a***@example.com"), so a referrer can recognize who's who
+// without seeing a downline member's full address.
+export function maskEmail(email: string): string {
+  const [localPart, domain] = email.split("@");
+  if (!localPart || !domain) return email;
+  const visible = localPart.slice(0, 1);
+  return `${visible}${"*".repeat(Math.max(localPart.length - 1, 3))}@${domain}`;
+}

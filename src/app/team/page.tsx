@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
@@ -16,10 +15,13 @@ import { TeamSummaryCards } from "@/features/team/components/team-summary-cards"
 import { TeamLevelBreakdown } from "@/features/team/components/team-level-breakdown";
 import { TeamMemberList } from "@/features/team/components/team-member-list";
 import { LevelProgressCard } from "@/features/team/components/level-progress-card";
+import { StaffEarningSummaryCards } from "@/features/team/components/staff-earning-summary-cards";
+import { DirectReferralList } from "@/features/team/components/direct-referral-list";
+import { ReferralPanel } from "@/features/dashboard/components/referral-panel";
+import { RecentReferralActivity } from "@/features/dashboard/components/recent-referral-activity";
 
 export default function TeamPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
   const {
     profile,
     loading: profileLoading,
@@ -28,17 +30,7 @@ export default function TeamPage() {
   } = useUserProfile();
   const { summary, loading: summaryLoading, error: summaryError, retry: retrySummary } =
     useTeamSummary();
-
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
   if (!configured) {
     return (
@@ -47,8 +39,6 @@ export default function TeamPage() {
       </div>
     );
   }
-
-  const gateLoading = authLoading || !user || !user.emailVerified;
 
   return (
     <div className="min-h-screen bg-black">
@@ -85,14 +75,33 @@ export default function TeamPage() {
             <div>
               <div className="flex items-center gap-2">
                 <Users className="h-6 w-6 text-brand-light" aria-hidden="true" />
-                <h1 className="text-2xl font-bold text-white">My team</h1>
+                <h1 className="text-2xl font-bold text-white">Staff Earning</h1>
               </div>
               <p className="text-sm text-white/50">
-                Everyone in your 12-level referral network, and how your team is growing.
+                Your direct referrals, the commission they&apos;ve generated, and your Level progress.
+                Referral commission is credited straight into your Current Balance — this page is
+                a report of where it came from, not a separate wallet.
               </p>
             </div>
 
             <LevelProgressCard />
+            <StaffEarningSummaryCards />
+            <ReferralPanel profile={profile} />
+            <DirectReferralList />
+
+            <div>
+              <h2 className="text-sm font-semibold text-white">Referral earning history</h2>
+              <p className="text-xs text-white/50">Who generated commission, which package, how much, and when.</p>
+            </div>
+            <RecentReferralActivity />
+
+            <div className="flex flex-col gap-1 border-t border-white/10 pt-6">
+              <h2 className="text-lg font-bold text-white">Full referral network</h2>
+              <p className="text-sm text-white/50">
+                Everyone in your 12-level referral network — for display only; commission is only
+                ever paid on your direct (level 1) referrals above.
+              </p>
+            </div>
 
             <TeamSummaryCards
               summary={summary}

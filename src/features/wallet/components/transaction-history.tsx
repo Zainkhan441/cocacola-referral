@@ -11,6 +11,7 @@ import { useMyTransactionHistory } from "@/features/user/hooks/use-my-transactio
 import { HistoryListRow } from "@/features/dashboard/components/history-card";
 import { LoadMoreButton } from "@/features/admin/components/load-more-button";
 import { WALLET_FIELD_LABELS } from "@/lib/wallet-labels";
+import { transactionDirectionFor } from "@/lib/transaction-direction";
 import type { TransactionTypeFilter } from "@/lib/firestore/transactions";
 
 const TYPE_OPTIONS: ReadonlyArray<{ label: string; value: TransactionTypeFilter }> = [
@@ -29,10 +30,6 @@ const STATUS_STYLES: Record<string, string> = {
   completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
   failed: "border-red-500/30 bg-red-500/10 text-red-300",
 };
-
-function directionFor(type: TransactionTypeFilter): "in" | "out" {
-  return type === "withdrawal" ? "out" : "in";
-}
 
 // The Wallet page's complete, paginated Transaction History — every wallet
 // movement the user has ever had, filterable by type, reusing the exact
@@ -105,7 +102,7 @@ export function TransactionHistory() {
                   transaction.wallet ? ` · ${WALLET_FIELD_LABELS[transaction.wallet]}` : ""
                 }`}
                 amount={transaction.amount}
-                direction={directionFor(transaction.type)}
+                direction={transactionDirectionFor(transaction)}
                 status={transaction.status}
                 statusClassName={STATUS_STYLES[transaction.status]}
               />

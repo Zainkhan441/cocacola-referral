@@ -53,11 +53,23 @@ export type TransactionDoc = {
   // pattern already used by deposits/withdrawals/taskSubmissions.
   userName: string;
   type: TransactionType;
+  // Always the absolute amount moved — never signed. Which direction that
+  // represents is derivable from `type` alone for every type except
+  // "admin_adjustment" (a manual admin correction can go either way); see
+  // `direction` below and lib/transaction-direction.ts's shared helper,
+  // which every display site should use instead of re-deriving this.
   amount: number;
   status: TransactionStatus;
   description: string;
   wallet: TransactionWallet | null;
   referenceId: string | null;
+  // Only ever set for type "admin_adjustment" (see adjustUserWalletAction) —
+  // every other type's direction is implied by `type` itself. Absent (and
+  // therefore ignored) on every admin_adjustment record written before this
+  // field existed; those fall back to being displayed as "in", same as
+  // before — their own `description` text still says "increased"/
+  // "decreased" for anyone reading the raw record.
+  direction?: "in" | "out";
   createdAt: Timestamp;
 };
 

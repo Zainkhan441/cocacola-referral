@@ -37,7 +37,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               displayName: firebaseUser.displayName,
-              emailVerified: firebaseUser.emailVerified,
             }
           : null,
       );

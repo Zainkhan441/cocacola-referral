@@ -1,4 +1,7 @@
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Pakistani mobile number, e.g. 03XXXXXXXXX — the account's own contact
+// number, independent of any per-deposit sender Easypaisa number.
+const MOBILE_NUMBER_PATTERN = /^03\d{9}$/;
 
 export function validateName(name: string): string | null {
   if (!name.trim()) return "Full name is required.";
@@ -9,6 +12,14 @@ export function validateName(name: string): string | null {
 export function validateEmail(email: string): string | null {
   if (!email.trim()) return "Email is required.";
   if (!EMAIL_PATTERN.test(email.trim())) return "Enter a valid email address.";
+  return null;
+}
+
+export function validateMobileNumber(value: string): string | null {
+  if (!value.trim()) return "Mobile number is required.";
+  if (!MOBILE_NUMBER_PATTERN.test(value.trim())) {
+    return "Enter an 11-digit mobile number (e.g. 03XXXXXXXXX).";
+  }
   return null;
 }
 

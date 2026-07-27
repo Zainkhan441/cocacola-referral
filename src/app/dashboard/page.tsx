@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import {
@@ -40,24 +39,13 @@ import { DashboardQuickLinks } from "@/features/dashboard/components/dashboard-q
 // business logic changed, every component below is reused exactly as built.
 export default function DashboardPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
   const {
     profile,
     loading: profileLoading,
     error: profileError,
     retry: retryProfile,
   } = useUserProfile();
-
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
   if (!configured) {
     return (
@@ -66,8 +54,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
-  const gateLoading = authLoading || !user || !user.emailVerified;
 
   return (
     <div className="min-h-screen bg-black">

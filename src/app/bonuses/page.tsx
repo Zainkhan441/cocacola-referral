@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -10,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
 import { useTeamSummary } from "@/features/user/hooks/use-team-summary";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
@@ -22,13 +22,13 @@ import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 
 export default function BonusesPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
   const {
     profile,
     loading: profileLoading,
     error: profileError,
     retry: retryProfile,
   } = useUserProfile();
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
   const { summary, loading: summaryLoading, error: summaryError, retry: retrySummary } =
     useTeamSummary();
   const { tiers, loading: tiersLoading, error: tiersError, retry: retryTiers } = useBonusTiers();
@@ -58,17 +58,6 @@ export default function BonusesPage() {
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimSuccess, setClaimSuccess] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
-
   async function handleClaim(tierId: string) {
     if (!user || claimingId) return;
     setClaimError(null);
@@ -96,8 +85,6 @@ export default function BonusesPage() {
       </div>
     );
   }
-
-  const gateLoading = authLoading || !user || !user.emailVerified;
 
   return (
     <div className="min-h-screen bg-black">

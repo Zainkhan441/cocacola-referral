@@ -5,6 +5,7 @@ const SETTINGS_PATH = "settings";
 const GLOBAL_SETTINGS_ID = "global";
 const OFFICIAL_CHANNEL_SETTINGS_ID = "officialChannel";
 const WITHDRAWAL_RULES_SETTINGS_ID = "withdrawalRules";
+const PAYMENT_SETTINGS_ID = "paymentDetails";
 
 // A singleton config document, admin-managed. Absence of this document
 // means every flag defaults to its "on" state — see firestore.rules
@@ -52,13 +53,6 @@ export type OfficialChannelDoc = {
   contactEmail: string | null;
   contactPhone: string | null;
   contactAddress: string | null;
-  // The account a user must pay a deposit/package-purchase into — shown on
-  // both deposit forms (DepositForm, PackagePurchaseForm) right above the
-  // reference ID/screenshot fields. Both null until an admin configures
-  // them, in which case the deposit forms show a "contact support" fallback
-  // instead of an empty/broken payment target.
-  easypaisaAccountNumber: string | null;
-  easypaisaAccountName: string | null;
   updatedAt: Timestamp;
 };
 
@@ -81,12 +75,47 @@ export type OfficialChannelInput = {
   contactEmail: string | null;
   contactPhone: string | null;
   contactAddress: string | null;
-  easypaisaAccountNumber: string | null;
-  easypaisaAccountName: string | null;
 };
 
 export async function setOfficialChannel(db: Firestore, input: OfficialChannelInput): Promise<void> {
   await setDoc(officialChannelDocRef(db), {
+    ...input,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// A fourth singleton doc in the same `settings` collection — the one
+// central Easypaisa payment target shown on every deposit/package-purchase
+// form (DepositForm, the package purchase modal). Seeded with real defaults
+// below rather than requiring an admin to configure it before the platform
+// is usable; getPaymentSettings falls back to those same defaults when the
+// document doesn't exist yet, so every consumer sees a consistent value
+// immediately, and the very first admin "Save" simply persists it for real.
+export const DEFAULT_PAYMENT_ACCOUNT_TITLE = "ZOHAIB SALHARIA";
+export const DEFAULT_PAYMENT_ACCOUNT_NUMBER = "03455340130";
+
+export type PaymentSettingsDoc = {
+  accountTitle: string;
+  accountNumber: string;
+  updatedAt: Timestamp;
+};
+
+export function paymentSettingsDocRef(db: Firestore) {
+  return doc(typedCollection<PaymentSettingsDoc>(db, SETTINGS_PATH), PAYMENT_SETTINGS_ID);
+}
+
+export async function getPaymentSettings(db: Firestore): Promise<PaymentSettingsDoc | null> {
+  const snapshot = await getDoc(paymentSettingsDocRef(db));
+  return snapshot.exists() ? snapshot.data() : null;
+}
+
+export type PaymentSettingsInput = {
+  accountTitle: string;
+  accountNumber: string;
+};
+
+export async function setPaymentSettings(db: Firestore, input: PaymentSettingsInput): Promise<void> {
+  await setDoc(paymentSettingsDocRef(db), {
     ...input,
     updatedAt: serverTimestamp(),
   });

@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Send, MessageCircle, Video, Globe, Mail, Phone, MapPin, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +7,8 @@ import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useUserProfile } from "@/features/user/hooks/use-user-profile";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { useOfficialChannel } from "@/features/channel/hooks/use-official-channel";
 import { AppHeader } from "@/components/layout/app-header";
@@ -22,19 +22,9 @@ const LINKS = [
 
 export default function ChannelPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
+  const { profile, loading: profileLoading } = useUserProfile();
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
   const { channel, loading, error, retry } = useOfficialChannel();
-
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
 
   if (!configured) {
     return (
@@ -44,7 +34,6 @@ export default function ChannelPage() {
     );
   }
 
-  const gateLoading = authLoading || !user || !user.emailVerified;
   const availableLinks = LINKS.filter((link) => channel?.[link.key]);
 
   return (

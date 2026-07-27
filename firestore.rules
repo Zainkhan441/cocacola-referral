@@ -23,34 +23,30 @@ service cloud.firestore {
       return isSignedIn() && userData(request.auth.uid).role == "admin";
     }
 
-    // A withdrawal is only allowed up to the per-request limit defined by
-    // the requester's own active package, and only while that specific
-    // user's package assignment hasn't expired — a package can be globally
-    // active (isActive) while this one user's own term has still lapsed.
-    function withinPackageWithdrawalLimit(uid, amount) {
-      let user = userData(uid);
-      return user.package != null
-        && exists(/databases/$(database)/documents/packages/$(user.package))
-        && user.packageExpiresAt != null
-        && request.time < user.packageExpiresAt
-        && amount <= get(/databases/$(database)/documents/packages/$(user.package)).data.withdrawalLimitPerRequest;
+    // Suspended/archived/banned accounts are blocked from every self-service
+    // financial write (deposits, withdrawals, task submissions, daily
+    // claims) — this is the real enforcement of Suspend/Archive, not just a
+    // hidden button in the admin UI. Deliberately does NOT block reads: a
+    // suspended/archived user's own client still needs to read their own
+    // profile to show the "account suspended" screen.
+    function isActiveAccount(uid) {
+      return userData(uid).accountStatus == "active";
     }
 
     function isValidPackageRef(pkg) {
       return pkg == null || exists(/databases/$(database)/documents/packages/$(pkg));
     }
 
-    // Shared baseline for both tasks and bonus tiers: the platform's other
-    // earning mechanisms (daily claims, referral qualification) all require
-    // an active, unexpired, still-enabled package — tasks/bonuses follow the
-    // same baseline rather than inventing a separate rule.
+    // Shared baseline for both tasks and bonus tiers. Packages never
+    // expire, and — deliberately — disabling a package (isActive: false)
+    // never affects a holder who already owns it: isActive only blocks NEW
+    // purchases, enforced separately at deposit-creation time (see
+    // deposits/{id} below). An existing holder's own eligibility only ever
+    // depends on still HOLDING a package, not on its current isActive flag.
     function userHasQualifyingPackage(uid) {
       let user = userData(uid);
       return user.package != null
-        && user.packageExpiresAt != null
-        && request.time < user.packageExpiresAt
-        && exists(/databases/$(database)/documents/packages/$(user.package))
-        && get(/databases/$(database)/documents/packages/$(user.package)).data.isActive == true;
+        && exists(/databases/$(database)/documents/packages/$(user.package));
     }
 
     // A task's own two (mutually exclusive) package gates on top of the
@@ -60,7 +56,8 @@ service cloud.firestore {
     function taskEligible(uid, taskId) {
       let user = userData(uid);
       let task = get(/databases/$(database)/documents/tasks/$(taskId)).data;
-      return userHasQualifyingPackage(uid)
+      return user.accountStatus == "active"
+        && userHasQualifyingPackage(uid)
         && (task.requiredPackageId == null || user.package == task.requiredPackageId)
         && (task.minPackagePrice == null
             || get(/databases/$(database)/documents/packages/$(user.package)).data.price >= task.minPackagePrice);
@@ -77,14 +74,21 @@ service cloud.firestore {
     // The package-wise daily task COUNT limit (distinct from a single daily
     // task's own per-task cooldown, canClaimDaily-style): caps how many task
     // completions of ANY task this user may submit within a rolling 24h
-    // window, per their own active package's dailyTaskLimit. Absence of a
-    // counter document means the user hasn't submitted anything yet this
-    // window, so it's always allowed.
+    // window. Absence of a counter document means the user hasn't submitted
+    // anything yet this window, so it's always allowed. Uses this holder's
+    // own snapshotted allowance (set at the approval that granted them their
+    // package — see approveDeposit) so a later admin edit to the package
+    // template can't retroactively change it; falls back to the package's
+    // current live limit only for accounts approved before that snapshot
+    // field existed.
     function taskDailyCounterAllowsSubmission(uid) {
       let user = userData(uid);
+      let dailyTaskLimit = user.get("packageDailyTaskLimit", null) != null
+        ? user.packageDailyTaskLimit
+        : get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit;
       return !exists(/databases/$(database)/documents/taskDailyCounters/$(uid))
         || request.time > get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.windowStartAt + duration.value(24, "h")
-        || get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.count < get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit;
+        || get(/databases/$(database)/documents/taskDailyCounters/$(uid)).data.count < dailyTaskLimit;
     }
 
     // Absence of settings/global means daily claims are ON by default — the
@@ -97,6 +101,18 @@ service cloud.firestore {
 
     function dailyEarningFor(pkg) {
       return get(/databases/$(database)/documents/packages/$(pkg)).data.dailyEarning;
+    }
+
+    // Prefers this holder's own snapshotted rate (set at the approval that
+    // granted them their package — see approveDeposit) over the package's
+    // current live rate, so a later admin edit to the template never
+    // retroactively changes what an existing holder earns. Falls back to
+    // the live rate only for accounts approved before this snapshot field
+    // existed.
+    function effectiveDailyEarning(user) {
+      return user.get("packageDailyEarning", null) != null
+        ? user.packageDailyEarning
+        : dailyEarningFor(user.package);
     }
 
     // Admin-editable minimum a Current Balance withdrawal request must meet
@@ -132,32 +148,32 @@ service cloud.firestore {
     // start of every new UTC day it's active for, never twice on the same
     // day, matching "credits once per day starting the day after
     // activation" exactly (lastDailyClaimAt is seeded to activatedAt at
-    // activation time, see approveDeposit). A package that's globally
-    // active can still be individually expired for this one user
-    // (packageExpiresAt in the past) — both are checked.
+    // activation time, see approveDeposit). Packages never expire, and
+    // disabling a package (isActive: false) never affects a holder who
+    // already owns it — isActive only blocks NEW purchases, enforced
+    // separately at deposit-creation time.
     function canClaimDaily(user) {
       return dailyClaimsGloballyEnabled()
+        && user.accountStatus == "active"
         && user.package != null
         && exists(/databases/$(database)/documents/packages/$(user.package))
-        && get(/databases/$(database)/documents/packages/$(user.package)).data.isActive == true
-        && user.packageExpiresAt != null
-        && request.time < user.packageExpiresAt
         && (user.lastDailyClaimAt == null || isNewUtcDay(user.lastDailyClaimAt, request.time));
     }
 
-    // The owner path: a plain profile edit (e.g. the emailVerified sync
-    // after verification, or a Settings-page profile/preference change) may
-    // only ever touch these fields — every money/role/status/package/
-    // referral-count field is frozen by omission, including any added after
-    // this rule was written, since affectedKeys() must be a subset of
-    // exactly this list. `referredBy` is deliberately absent (Milestone 11):
-    // it's set once at creation and frozen forever after, so a user can
-    // never retroactively reassign who referred them to redirect a future
-    // package purchase's referral chain to an accomplice.
+    // The owner path: a plain profile edit (e.g. a Settings-page profile/
+    // preference change) may only ever touch these fields — every money/
+    // role/status/package/referral-count field is frozen by omission,
+    // including any added after this rule was written, since affectedKeys()
+    // must be a subset of exactly this list. `referredBy` is deliberately
+    // absent (Milestone 11): it's set once at creation and frozen forever
+    // after, so a user can never retroactively reassign who referred them
+    // to redirect a future package purchase's referral chain to an
+    // accomplice. `emailVerified` is also absent — there is no email
+    // verification flow, so no client ever needs to write it.
     function ownerCanUpdateUser() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly([
-          "fullName", "fullNameLower", "email", "referralCode", "emailVerified",
+          "fullName", "fullNameLower", "email", "referralCode",
           "notificationsEnabled", "themePreference", "languagePreference", "updatedAt"
         ])
         && (!("notificationsEnabled" in request.resource.data.diff(resource.data).affectedKeys())
@@ -178,10 +194,10 @@ service cloud.firestore {
              .hasOnly(["cocaColaEarning", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
         && request.resource.data.lastDailyClaimAt == request.time
         && request.resource.data.cocaColaEarning
-             == resource.data.cocaColaEarning + dailyEarningFor(resource.data.package)
+             == resource.data.cocaColaEarning + effectiveDailyEarning(resource.data)
         && request.resource.data.totalEarnings
-             == resource.data.totalEarnings + dailyEarningFor(resource.data.package)
-        && request.resource.data.todayEarnings == dailyEarningFor(resource.data.package);
+             == resource.data.totalEarnings + effectiveDailyEarning(resource.data)
+        && request.resource.data.todayEarnings == effectiveDailyEarning(resource.data);
     }
 
     // The self-service "I'm submitting a package-purchase deposit" marker —
@@ -226,8 +242,8 @@ service cloud.firestore {
       let user = userData(uid);
       return canClaimDaily(user)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["cocaColaEarning", "totalEarnings", "updatedAt"])
-        && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + dailyEarningFor(user.package)
-        && request.resource.data.totalEarnings == resource.data.totalEarnings + dailyEarningFor(user.package);
+        && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + effectiveDailyEarning(user)
+        && request.resource.data.totalEarnings == resource.data.totalEarnings + effectiveDailyEarning(user);
     }
 
     // The admin path: deliberately narrower than "admin can do anything".
@@ -249,7 +265,8 @@ service cloud.firestore {
         "walletBalance", "currentBalance", "cocaColaEarning", "staffEarning",
         "totalEarnings", "pendingEarnings", "todayEarnings",
         "accountStatus", "package", "packagePurchasedAt", "packageActivatedAt",
-        "packageExpiresAt", "pendingPackagePurchaseId",
+        "packageExpiresAt", "packageDailyEarning", "packageDailyTaskLimit",
+        "pendingPackagePurchaseId", "lastDailyClaimAt",
         "pendingWithdrawalCurrentBalance", "pendingWithdrawalCocaColaEarning", "updatedAt"
       ])
         && request.resource.data.walletBalance is number && request.resource.data.walletBalance >= 0
@@ -259,12 +276,15 @@ service cloud.firestore {
         && request.resource.data.totalEarnings is number && request.resource.data.totalEarnings >= 0
         && request.resource.data.pendingEarnings is number && request.resource.data.pendingEarnings >= 0
         && request.resource.data.todayEarnings is number && request.resource.data.todayEarnings >= 0
-        && request.resource.data.accountStatus in ["active", "suspended", "banned"]
+        && request.resource.data.accountStatus in ["active", "suspended", "archived", "banned"]
         && isValidPackageRef(request.resource.data.package)
         && (request.resource.data.packagePurchasedAt == null || request.resource.data.packagePurchasedAt is timestamp)
         && (request.resource.data.packageActivatedAt == null || request.resource.data.packageActivatedAt is timestamp)
         && (request.resource.data.packageExpiresAt == null || request.resource.data.packageExpiresAt is timestamp)
+        && (request.resource.data.packageDailyEarning == null || request.resource.data.packageDailyEarning is number)
+        && (request.resource.data.packageDailyTaskLimit == null || request.resource.data.packageDailyTaskLimit is number)
         && (request.resource.data.pendingPackagePurchaseId == null || request.resource.data.pendingPackagePurchaseId is string)
+        && (request.resource.data.lastDailyClaimAt == null || request.resource.data.lastDailyClaimAt is timestamp)
         && (request.resource.data.pendingWithdrawalCurrentBalance == null || request.resource.data.pendingWithdrawalCurrentBalance is string)
         && (request.resource.data.pendingWithdrawalCocaColaEarning == null || request.resource.data.pendingWithdrawalCocaColaEarning is string);
     }
@@ -286,6 +306,8 @@ service cloud.firestore {
         && request.resource.data.packagePurchasedAt == null
         && request.resource.data.packageActivatedAt == null
         && request.resource.data.packageExpiresAt == null
+        && request.resource.data.packageDailyEarning == null
+        && request.resource.data.packageDailyTaskLimit == null
         && request.resource.data.pendingPackagePurchaseId == null
         && request.resource.data.pendingWithdrawalCurrentBalance == null
         && request.resource.data.pendingWithdrawalCocaColaEarning == null
@@ -367,7 +389,8 @@ service cloud.firestore {
           && request.resource.data.status in ["pending", "completed", "failed"]
           && request.resource.data.description is string
           && (request.resource.data.wallet == null || request.resource.data.wallet in ["walletBalance", "currentBalance", "cocaColaEarning", "staffEarning"])
-          && (request.resource.data.referenceId == null || request.resource.data.referenceId is string))
+          && (request.resource.data.referenceId == null || request.resource.data.referenceId is string)
+          && (!("direction" in request.resource.data) || request.resource.data.direction in ["in", "out"]))
         || (isSignedIn()
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.userName is string
@@ -377,7 +400,7 @@ service cloud.firestore {
           && request.resource.data.wallet == "cocaColaEarning"
           && request.resource.data.referenceId is string
           && canClaimDaily(userData(request.auth.uid))
-          && request.resource.data.amount == dailyEarningFor(userData(request.auth.uid).package));
+          && request.resource.data.amount == effectiveDailyEarning(userData(request.auth.uid)));
       allow update, delete: if false;
     }
 
@@ -404,6 +427,7 @@ service cloud.firestore {
     match /deposits/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
+        && isActiveAccount(request.auth.uid)
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.userName is string
         && request.resource.data.userName.size() > 0
@@ -413,6 +437,8 @@ service cloud.firestore {
         && request.resource.data.amount is number
         && request.resource.data.referenceId is string
         && request.resource.data.referenceId.size() > 0
+        && request.resource.data.senderAccountNumber is string
+        && request.resource.data.senderAccountNumber.size() > 0
         && (request.resource.data.screenshotUrl == null
             || request.resource.data.screenshotUrl is string)
         && isValidPackageRef(request.resource.data.packageId)
@@ -430,18 +456,20 @@ service cloud.firestore {
     }
 
     // Same shape as deposits, plus: amount can never exceed the requester's
-    // relevant wallet balance nor their active, unexpired package's
-    // per-request limit. Which wallet/limit applies depends on sourceWallet
-    // — Staff Earning has no withdrawal path at all (not a valid value
-    // here). Note: the Coca-Cola Earning path's required-Level gate (direct
-    // active referral count) can't be checked here — Firestore rules cannot
-    // run the aggregate count query it needs — so it's only advisory
-    // client-side UX; the authoritative check happens in approveWithdrawal
-    // via a live getDirectActiveReferralCount() re-fetch before any money
-    // moves, exactly like approveBonusClaim's team-aggregate re-check.
+    // relevant wallet balance. Which wallet/minimum applies depends on
+    // sourceWallet — Staff Earning has no withdrawal path at all (not a
+    // valid value here). There is no per-package withdrawal limit — only
+    // the global settings/withdrawalRules minimums apply. Note: the
+    // Coca-Cola Earning path's required-Level gate (direct active referral
+    // count) can't be checked here — Firestore rules cannot run the
+    // aggregate count query it needs — so it's only advisory client-side
+    // UX; the authoritative check happens in approveWithdrawal via a live
+    // getDirectActiveReferralCount() re-fetch before any money moves,
+    // exactly like approveBonusClaim's team-aggregate re-check.
     match /withdrawals/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
+        && isActiveAccount(request.auth.uid)
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.userName is string
         && request.resource.data.userName.size() > 0
@@ -453,7 +481,6 @@ service cloud.firestore {
         && request.resource.data.accountName.size() > 0
         && request.resource.data.accountNumber is string
         && request.resource.data.accountNumber.size() > 0
-        && withinPackageWithdrawalLimit(request.auth.uid, request.resource.data.amount)
         && (
              (request.resource.data.sourceWallet == "current_balance"
                && request.resource.data.amount >= currentBalanceMinWithdraw()
@@ -469,47 +496,33 @@ service cloud.firestore {
     }
 
     // Granted only by the admin-run deposit-approval transaction, up to once
-    // per (depositId, level) pair — the doc id itself is deterministic
-    // (`${depositId}_L${level}`) so a retried transaction can never double
-    // this write, and it's never a client write. Immutable once written,
-    // same as transactions.
+    // per depositId — the doc id itself is deterministic (the depositId, so
+    // a retried transaction can never double this write), and it's never a
+    // client write. A flat commission paid ONLY to the purchaser's direct
+    // referrer (never a multi-level payout) — see approveDeposit. Immutable
+    // once written, same as transactions.
     match /referralRewards/{id} {
-      allow read: if isSignedIn() && (resource.data.earnerUid == request.auth.uid || isAdmin());
+      // isAdmin() deliberately comes first: the admin deposit-review UI
+      // does a direct getDoc() by depositId to check whether a specific
+      // purchase's commission was already paid, and that id often doesn't
+      // exist (no referrer, or Rs 0 commission) — on a nonexistent
+      // document `resource` is null, so `resource.data.earnerUid` would
+      // throw and deny the read entirely if evaluated first. Short-circuit
+      // ordering means an admin's read never touches `resource.data` at all.
+      allow read: if isSignedIn() && (isAdmin() || resource.data.earnerUid == request.auth.uid);
       allow create: if isAdmin()
+        && id == request.resource.data.depositId
         && request.resource.data.earnerUid is string
         && request.resource.data.earnerName is string
         && request.resource.data.sourceUid is string
         && request.resource.data.sourceName is string
-        && request.resource.data.level is number
-        && request.resource.data.level > 0
-        && request.resource.data.level <= 12
         && request.resource.data.amount is number && request.resource.data.amount > 0
-        && request.resource.data.rewardType in ["percentage", "fixed"]
-        && request.resource.data.rewardValue is number && request.resource.data.rewardValue >= 0
         && request.resource.data.packageId is string
+        && request.resource.data.packageName is string
         && request.resource.data.packagePrice is number && request.resource.data.packagePrice > 0
         && request.resource.data.depositId is string
         && request.resource.data.status == "credited";
       allow update, delete: if false;
-    }
-
-    // Admin-configurable payout rate for each of the 12 referral levels — the
-    // single source of truth the payout engine reads (see approveDeposit);
-    // a level whose document doesn't exist is treated as disabled, never
-    // defaulted to a hardcoded rate. Any signed-in user may read these (the
-    // rates aren't sensitive and knowing them isn't a security concern);
-    // only an admin may write.
-    match /referralLevelSettings/{level} {
-      allow read: if isSignedIn();
-      allow create, update: if isAdmin()
-        && request.resource.data.level is number
-        && request.resource.data.level == int(level)
-        && request.resource.data.level > 0
-        && request.resource.data.level <= 12
-        && request.resource.data.rewardType in ["percentage", "fixed"]
-        && request.resource.data.rewardValue is number && request.resource.data.rewardValue >= 0
-        && request.resource.data.enabled is bool;
-      allow delete: if false;
     }
 
     // One entry per (ancestor, member) pair, doc id `${ancestorUid}_${memberUid}`
@@ -523,41 +536,64 @@ service cloud.firestore {
     // self-reported ancestor/level fields are safe here).
     match /teamMembers/{id} {
       allow read: if isSignedIn() && (resource.data.ancestorUid == request.auth.uid || isAdmin());
+      // The self-service branch deliberately does NOT also require
+      // exists(users/{memberUid}): this record is created in the SAME
+      // atomic batch/transaction as the member's own users/{uid} profile
+      // (see ensureUserProfile), and exists()/get() in a security rule
+      // evaluates against the pre-commit server state — it does NOT see a
+      // sibling document being created earlier in the very same commit
+      // (verified empirically; this is true for both writeBatch and
+      // runTransaction). Requiring it here would make every referral
+      // signup's atomic profile-creation commit fail with permission-denied
+      // every single time. request.auth.uid already IS the caller's
+      // verified identity (the ID token), so no additional existence check
+      // is needed for the self-service case. The admin branch keeps the
+      // check: an admin write is never part of the member's own atomic
+      // signup, so the target must already be a real, existing user.
       allow create: if isSignedIn()
-        && (request.resource.data.memberUid == request.auth.uid || isAdmin())
         && request.resource.data.ancestorUid is string
         && exists(/databases/$(database)/documents/users/$(request.resource.data.ancestorUid))
         && request.resource.data.memberUid is string
-        && exists(/databases/$(database)/documents/users/$(request.resource.data.memberUid))
+        && (
+          request.resource.data.memberUid == request.auth.uid
+          || (isAdmin() && exists(/databases/$(database)/documents/users/$(request.resource.data.memberUid)))
+        )
         && request.resource.data.memberName is string
         && request.resource.data.memberName.size() > 0
+        && request.resource.data.memberEmail is string
         && request.resource.data.level is number
         && request.resource.data.level > 0
         && request.resource.data.level <= 12
         && request.resource.data.joinedAt is timestamp
         && (request.resource.data.packageId == null || request.resource.data.packageId is string)
         && (request.resource.data.packageName == null || request.resource.data.packageName is string)
-        && (request.resource.data.packageExpiresAt == null || request.resource.data.packageExpiresAt is timestamp);
-      // Package-state sync only — admin-only, and only these fields, so a
-      // client can never rewrite the ancestor/member/level/joinedAt identity
-      // of an existing team record.
+        && (request.resource.data.packageExpiresAt == null || request.resource.data.packageExpiresAt is timestamp)
+        && (request.resource.data.packagePrice == null || (request.resource.data.packagePrice is number && request.resource.data.packagePrice > 0))
+        && (request.resource.data.packageApprovedAt == null || request.resource.data.packageApprovedAt is timestamp)
+        && request.resource.data.commissionEarned is number && request.resource.data.commissionEarned >= 0;
+      // Package-state and commission-reporting sync only — admin-only, and
+      // only these fields, so a client can never rewrite the
+      // ancestor/member/level/joinedAt identity of an existing team record.
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(["packageId", "packageName", "packageExpiresAt", "updatedAt"]);
+             .hasOnly(["packageId", "packageName", "packageExpiresAt", "packagePrice", "packageApprovedAt", "commissionEarned", "updatedAt"])
+        && (request.resource.data.packagePrice == null || (request.resource.data.packagePrice is number && request.resource.data.packagePrice > 0))
+        && (request.resource.data.packageApprovedAt == null || request.resource.data.packageApprovedAt is timestamp)
+        && request.resource.data.commissionEarned is number && request.resource.data.commissionEarned >= 0;
       allow delete: if false;
     }
 
     // A claim is self-service: the document itself IS the claim record, so
-    // its create rule mirrors the same canClaimDaily/dailyEarningFor checks
-    // as the users/{uid} and wallets/{uid} writes it accompanies in the same
-    // client transaction. Once written, immutable — a user cannot edit their
-    // own claim history.
+    // its create rule mirrors the same canClaimDaily/effectiveDailyEarning
+    // checks as the users/{uid} and wallets/{uid} writes it accompanies in
+    // the same client transaction. Once written, immutable — a user cannot
+    // edit their own claim history.
     match /dailyRewards/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.packageId == userData(request.auth.uid).package
-        && request.resource.data.amount == dailyEarningFor(request.resource.data.packageId)
+        && request.resource.data.amount == effectiveDailyEarning(userData(request.auth.uid))
         && request.resource.data.status == "claimed"
         && request.resource.data.rewardDate is string
         && canClaimDaily(userData(request.auth.uid));
@@ -566,7 +602,8 @@ service cloud.firestore {
 
     // Immutable, admin-written purchase history — the record that survives
     // "always fresh" package replacement wiping users/{uid}'s own lifecycle
-    // fields on every new purchase.
+    // fields on every new purchase. No durationDays/expiresAt — packages
+    // never expire.
     match /packagePurchases/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isAdmin()
@@ -574,11 +611,9 @@ service cloud.firestore {
         && request.resource.data.packageId is string
         && request.resource.data.packageName is string
         && request.resource.data.price is number && request.resource.data.price > 0
-        && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
         && request.resource.data.depositId is string
         && request.resource.data.purchasedAt is timestamp
-        && request.resource.data.activatedAt is timestamp
-        && request.resource.data.expiresAt is timestamp;
+        && request.resource.data.activatedAt is timestamp;
       allow update, delete: if false;
     }
 
@@ -754,9 +789,15 @@ service cloud.firestore {
     // anything (see features/admin/lib/bonus-actions.ts). Duplicate
     // one-time payment is prevented at approval time via bonusAwards, not
     // here — this only stops piling up new claims once one is already paid.
+    // A second, independent guard — !exists(pendingBonusClaims/{uid}_{tierId})
+    // below — blocks a second PENDING claim for the same tier from ever being
+    // created (recurring tiers have no bonusAwards-style permanent marker, so
+    // without this, nothing else stops one being piled up); see the
+    // pendingBonusClaims match block just below for the full explanation.
     match /bonusClaims/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       allow create: if isSignedIn()
+        && isActiveAccount(request.auth.uid)
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.userName is string && request.resource.data.userName.size() > 0
         && request.resource.data.tierId is string
@@ -774,6 +815,7 @@ service cloud.firestore {
         && (request.resource.data.packageIdAtClaim == null || request.resource.data.packageIdAtClaim is string)
         && (get(/databases/$(database)/documents/bonusTiers/$(request.resource.data.tierId)).data.recurrence == "recurring"
             || !exists(/databases/$(database)/documents/bonusAwards/$(request.auth.uid + "_" + request.resource.data.tierId)))
+        && !exists(/databases/$(database)/documents/pendingBonusClaims/$(request.auth.uid + "_" + request.resource.data.tierId))
         && request.resource.data.status == "pending"
         && request.resource.data.reviewedBy == null;
       allow update: if isAdmin() && adminCanReviewRequest();
@@ -795,6 +837,41 @@ service cloud.firestore {
         && request.resource.data.claimId is string
         && request.resource.data.amount is number && request.resource.data.amount > 0;
       allow update, delete: if false;
+    }
+
+    // One-doc-per-(uid, tierId) pending-claim lock, id `${uid}_${tierId}` —
+    // the SAME "resource == null means it doesn't exist yet, so `create`
+    // alone enforces exclusivity" trick bonusAwards already uses, applied to
+    // a TEMPORARY marker instead of a permanent one. submitBonusClaim
+    // creates this in the same client transaction as the bonusClaims doc
+    // itself; approveBonusClaim/rejectBonusClaim delete it in the same
+    // transaction that resolves the claim, which is what lets a user submit
+    // a legitimate new claim for a recurring tier again once this one has
+    // been reviewed — this rule only ever blocks a SECOND simultaneous
+    // PENDING claim for the same tier, never a later, separate one.
+    match /pendingBonusClaims/{id} {
+      // resource == null must be allowed here (not just resource.data.uid
+      // matching): submitBonusClaim's transaction.get() on this ref is how
+      // it checks whether a lock ALREADY exists, and that read happens
+      // before the doc has ever been created — resource.data would throw a
+      // null-dereference evaluation error (treated as deny) for every
+      // FIRST-ever claim on a tier otherwise. The only information this
+      // exposes is whether some uid+tierId combination currently has a
+      // pending claim (a boolean), never the claim's own data.
+      allow read: if isSignedIn() && (resource == null || resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn()
+        && isActiveAccount(request.auth.uid)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.tierId is string && request.resource.data.tierId.size() > 0
+        && id == request.auth.uid + "_" + request.resource.data.tierId
+        && request.resource.data.claimId is string && request.resource.data.claimId.size() > 0;
+      allow update: if false;
+      // Deleting this lock has no direct financial effect by itself — it
+      // only ever re-opens the ability to submit a NEW claim for this tier.
+      // The actual money-safety guarantees (eligibility re-check, one-time
+      // bonusAwards marker) live entirely in approveBonusClaim, so no extra
+      // condition is needed here beyond admin-only.
+      allow delete: if isAdmin();
     }
 
     // The admin-authored notification broadcast content (Milestone 13) — one
@@ -845,7 +922,7 @@ service cloud.firestore {
                && id == request.resource.data.announcementId + "_" + request.resource.data.uid
                && request.resource.data.announcementId is string
                && exists(/databases/$(database)/documents/announcements/$(request.resource.data.announcementId)))
-             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission", "admin_adjustment"]
+             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission", "admin_adjustment", "account_status"]
                && request.resource.data.announcementId == null)
            );
       allow update: if isSignedIn()
@@ -856,10 +933,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Package definitions (price, earning/withdrawal limits, duration,
-    // features, active status) are fully admin-managed. Referral payout
-    // rates are NOT part of a package — see referralLevelSettings above.
-    // Any signed-in user may read them to know their own limits or browse
+    // Package definitions (price, daily earning, daily task limit, flat
+    // referral commission, features, active status) are fully admin-managed.
+    // Packages never expire once purchased — there is no duration field;
+    // a package only stops qualifying a user once an admin disables it
+    // (isActive: false) or the user is assigned a different one. Any
+    // signed-in user may read them to know their own limits or browse
     // purchasable packages. Packages are disabled (isActive: false), never
     // deleted, so users already assigned to one never point at a missing
     // document.
@@ -868,11 +947,9 @@ service cloud.firestore {
       allow create: if isAdmin()
         && request.resource.data.id == packageId
         && request.resource.data.name is string && request.resource.data.name.size() > 0
-        && request.resource.data.price is number && request.resource.data.price >= 0
+        && request.resource.data.price is number && request.resource.data.price > 0
         && request.resource.data.dailyEarning is number && request.resource.data.dailyEarning >= 0
-        && request.resource.data.withdrawalLimitPerRequest is number && request.resource.data.withdrawalLimitPerRequest >= 0
-        && request.resource.data.dailyWithdrawalLimit is number && request.resource.data.dailyWithdrawalLimit >= 0
-        && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.referralCommission is number && request.resource.data.referralCommission >= 0
         && request.resource.data.dailyTaskLimit is number && request.resource.data.dailyTaskLimit >= 0
         && request.resource.data.features is list
         && request.resource.data.isActive is bool;
@@ -880,15 +957,18 @@ service cloud.firestore {
         && request.resource.data.id == resource.data.id
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.name is string && request.resource.data.name.size() > 0
-        && request.resource.data.price is number && request.resource.data.price >= 0
+        && request.resource.data.price is number && request.resource.data.price > 0
         && request.resource.data.dailyEarning is number && request.resource.data.dailyEarning >= 0
-        && request.resource.data.withdrawalLimitPerRequest is number && request.resource.data.withdrawalLimitPerRequest >= 0
-        && request.resource.data.dailyWithdrawalLimit is number && request.resource.data.dailyWithdrawalLimit >= 0
-        && request.resource.data.durationDays is number && request.resource.data.durationDays > 0
+        && request.resource.data.referralCommission is number && request.resource.data.referralCommission >= 0
         && request.resource.data.dailyTaskLimit is number && request.resource.data.dailyTaskLimit >= 0
         && request.resource.data.features is list
         && request.resource.data.isActive is bool;
-      allow delete: if false;
+      // Permanent delete is admin-only in the rules layer, not just hidden
+      // in the UI. Client-side safety checks (no assigned users, no pending
+      // deposits referencing this package) live in deletePackageAction —
+      // rules cannot run collection-wide queries to enforce that here, only
+      // gate who is allowed to attempt the write at all.
+      allow delete: if isAdmin();
     }
 
     // Append-only admin audit trail. Never client-editable, never deletable.
@@ -921,12 +1001,13 @@ service cloud.firestore {
           && (request.resource.data.bannerText == null || request.resource.data.bannerText is string)
           && (request.resource.data.contactEmail == null || request.resource.data.contactEmail is string)
           && (request.resource.data.contactPhone == null || request.resource.data.contactPhone is string)
-          && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string)
-          && (request.resource.data.easypaisaAccountNumber == null || request.resource.data.easypaisaAccountNumber is string)
-          && (request.resource.data.easypaisaAccountName == null || request.resource.data.easypaisaAccountName is string))
+          && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string))
         || (settingId == "withdrawalRules"
           && request.resource.data.currentBalanceMinWithdraw is number && request.resource.data.currentBalanceMinWithdraw >= 0
           && request.resource.data.cocaColaRequiredLevel is number && request.resource.data.cocaColaRequiredLevel >= 0)
+        || (settingId == "paymentDetails"
+          && request.resource.data.accountTitle is string && request.resource.data.accountTitle.size() > 0
+          && request.resource.data.accountNumber is string && request.resource.data.accountNumber.size() > 0)
       );
     }
 

@@ -7,16 +7,19 @@ import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 
-export type AdjustableWalletField = "currentBalance" | "cocaColaEarning" | "staffEarning";
+// Staff Earning is deliberately absent here — it is not a real wallet (see
+// approveDeposit's top-level doc comment). It's a reporting view computed
+// from the referralRewards collection and each teamMembers record's
+// commissionEarned total, never a mutable balance an admin can nudge.
+export type AdjustableWalletField = "currentBalance" | "cocaColaEarning";
 
 const FIELD_LABELS: Record<AdjustableWalletField, string> = {
   currentBalance: "Current Balance",
   cocaColaEarning: "Coca-Cola Earning",
-  staffEarning: "Staff Earning",
 };
 
 // Admin manual wallet adjustment: increase or decrease exactly one of the
-// three earning wallets for one user — never walletBalance (the Deposit
+// two earning wallets for one user — never walletBalance (the Deposit
 // Wallet, reserved for top-ups only) — writing both users/{uid} and the
 // mirrored wallets/{uid} atomically. `delta` may be negative (decrease) or
 // positive (increase); the resulting balance can never go below 0, checked
@@ -63,6 +66,9 @@ export async function adjustUserWalletAction(
       userName,
       type: "admin_adjustment",
       amount: Math.abs(delta),
+      // admin_adjustment is the one transaction type whose direction isn't
+      // implied by its own type — see transaction-direction.ts.
+      direction: delta >= 0 ? "in" : "out",
       status: "completed",
       description: `Admin ${delta >= 0 ? "increased" : "decreased"} ${FIELD_LABELS[field]} by ${formatCurrency(Math.abs(delta))}`,
       wallet: field,

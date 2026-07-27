@@ -8,13 +8,13 @@ type EnsureUserProfileInput = {
   uid: string;
   fullName: string;
   email: string;
+  mobileNumber: string;
   referredBy: string | null;
   // The direct referrer's own ancestor chain (their referredBy lineage, up to
   // 11 entries) — used to fan this new signup's team membership out to every
   // ancestor up to level 12. Empty when referredBy is null. See
   // referral-codes.ts's ReferralCodeDoc for where this comes from.
   referrerAncestorChain: string[];
-  emailVerified: boolean;
 };
 
 // The single place that creates a user's Firestore profile — used both
@@ -69,9 +69,9 @@ export async function ensureUserProfile(
         uid: input.uid,
         fullName: input.fullName,
         email: input.email,
+        mobileNumber: input.mobileNumber,
         referralCode,
         referredBy,
-        emailVerified: input.emailVerified,
       }),
     );
 
@@ -83,6 +83,7 @@ export async function ensureUserProfile(
           ancestorUid,
           memberUid: input.uid,
           memberName: input.fullName,
+          memberEmail: input.email,
           level: index + 1,
           joinedAt,
         }),

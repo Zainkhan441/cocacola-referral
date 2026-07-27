@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAggregateFromServer, getCountFromServer, query, sum, where, Timestamp } from "firebase/firestore";
+import { getAggregateFromServer, getCountFromServer, query, sum, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { usersCollection } from "@/lib/firestore/users";
 import { depositsCollection } from "@/lib/firestore/deposits";
@@ -14,7 +14,8 @@ import { startOfUtcDay } from "@/lib/date-utils";
 export type AdminStats = {
   totalUsers: number;
   activeUsers: number;
-  // Count of users with a currently active, unexpired package.
+  // Count of users with a package currently assigned (packages never
+  // expire, so this is presence, not a time-bounded check).
   activePackages: number;
   // Sum of approved deposit amounts (money that has flowed into wallets).
   totalDeposits: number;
@@ -90,7 +91,7 @@ export function useAdminStats(): UseAdminStatsResult {
         getCountFromServer(usersCollection(firestore)),
         getCountFromServer(query(usersCollection(firestore), where("accountStatus", "==", "active"))),
         getCountFromServer(
-          query(usersCollection(firestore), where("packageExpiresAt", ">", Timestamp.now())),
+          query(usersCollection(firestore), where("package", "!=", null)),
         ),
         getAggregateFromServer(
           query(depositsCollection(firestore), where("status", "==", "approved")),

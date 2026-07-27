@@ -6,7 +6,7 @@ import {
   bonusTierDocRef,
   type BonusTierInput,
 } from "@/lib/firestore/bonus-tiers";
-import { bonusClaimDocRef } from "@/lib/firestore/bonus-claims";
+import { bonusClaimDocRef, pendingBonusClaimDocRef } from "@/lib/firestore/bonus-claims";
 import { bonusAwardDocRef } from "@/lib/firestore/bonus-awards";
 import { userDocRef } from "@/lib/firestore/users";
 import { walletDocRef } from "@/lib/firestore/wallets";
@@ -195,6 +195,11 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
       reviewedBy: reviewer.adminUid,
       updatedAt: serverTimestamp(),
     });
+    // Clears the submission-time lock so this user CAN submit a fresh claim
+    // for this tier again later (the whole point of "recurring") — see
+    // pendingBonusClaimDocRef's doc comment and firestore.rules'
+    // pendingBonusClaims block.
+    transaction.delete(pendingBonusClaimDocRef(db, freshClaim.uid, freshClaim.tierId));
 
     if (awardRef) {
       transaction.set(awardRef, {
@@ -238,6 +243,10 @@ export async function rejectBonusClaim(claimId: string, reviewer: Reviewer): Pro
       reviewedBy: reviewer.adminUid,
       updatedAt: serverTimestamp(),
     });
+    // Same lock-clearing as approveBonusClaim — a rejected claim must also
+    // free up the tier for a fresh submission, not leave it permanently
+    // stuck "pending" from the lock's perspective.
+    transaction.delete(pendingBonusClaimDocRef(db, claim.uid, claim.tierId));
   });
 
   await logActivity(db, {

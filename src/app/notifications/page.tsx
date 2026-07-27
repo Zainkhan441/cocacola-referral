@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useUserProfile } from "@/features/user/hooks/use-user-profile";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { useMyNotificationHistory } from "@/features/notifications/hooks/use-my-notification-history";
@@ -17,20 +17,10 @@ import { formatDate } from "@/lib/format";
 
 export default function NotificationsPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
+  const { profile, loading: profileLoading } = useUserProfile();
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
   const { notifications, loading, loadingMore, error, hasMore, loadMore, retry } =
     useMyNotificationHistory();
-
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
 
   async function handleMarkAllRead() {
     if (!user) return;
@@ -52,7 +42,6 @@ export default function NotificationsPage() {
     );
   }
 
-  const gateLoading = authLoading || !user || !user.emailVerified;
   const hasUnread = notifications.some((notification) => !notification.read);
 
   return (

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -12,9 +13,13 @@ import { useAuth } from "@/features/auth/context/auth-provider";
 import { useAdminUserProfile } from "@/features/admin/hooks/use-admin-user-profile";
 import { useAdminUserWalletHistory } from "@/features/admin/hooks/use-admin-user-wallet-history";
 import { useAdminPackages } from "@/features/admin/hooks/use-admin-packages";
-import { setAccountStatusAction, setUserPackageAction } from "@/features/admin/lib/user-actions";
+import { useAdminReferralInsights } from "@/features/admin/hooks/use-admin-referral-insights";
+import { setUserPackageAction } from "@/features/admin/lib/user-actions";
 import { HistoryCard, HistoryListRow } from "@/features/dashboard/components/history-card";
 import { WalletAdjustmentForm } from "@/features/admin/components/wallet-adjustment-form";
+import { UserStatusActions, STATUS_BADGE_STYLES } from "@/features/admin/components/user-status-actions";
+import { transactionDirectionFor } from "@/lib/transaction-direction";
+import { DeleteUserModal } from "@/features/admin/components/delete-user-modal";
 
 const NEUTRAL_BADGE = "border-white/15 bg-white/5 text-white/70";
 
@@ -24,34 +29,26 @@ type UserDetailClientProps = {
 
 export function UserDetailClient({ uid }: UserDetailClientProps) {
   const { user: adminUser } = useAuth();
+  const router = useRouter();
   const { profile, loading, error, retry } = useAdminUserProfile(uid);
   const history = useAdminUserWalletHistory(uid);
   const { packages } = useAdminPackages();
+  const {
+    insights,
+    loading: insightsLoading,
+    error: insightsError,
+    retry: retryInsights,
+  } = useAdminReferralInsights(uid, profile?.referredBy ?? null);
 
-  const [statusBusy, setStatusBusy] = useState(false);
-  const [statusError, setStatusError] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState("");
   const [packageBusy, setPackageBusy] = useState(false);
   const [packageError, setPackageError] = useState<string | null>(null);
   const [packageSuccess, setPackageSuccess] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   function reviewer() {
     if (!adminUser) throw new Error("Not signed in.");
     return { adminUid: adminUser.uid, adminName: adminUser.displayName ?? adminUser.email ?? "Admin" };
-  }
-
-  async function handleToggleStatus() {
-    if (!profile || statusBusy) return;
-    setStatusBusy(true);
-    setStatusError(null);
-    try {
-      const nextStatus = profile.accountStatus === "active" ? "suspended" : "active";
-      await setAccountStatusAction(uid, profile.fullName, nextStatus, reviewer());
-    } catch (err) {
-      setStatusError(err instanceof Error ? err.message : "Couldn’t update account status.");
-    } finally {
-      setStatusBusy(false);
-    }
   }
 
   async function handleChangePackage() {
@@ -117,11 +114,7 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
             </p>
           </div>
           <span
-            className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide ${
-              profile.accountStatus === "active"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-            }`}
+            className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide ${STATUS_BADGE_STYLES[profile.accountStatus]}`}
           >
             {profile.accountStatus}
           </span>
@@ -141,12 +134,8 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
             <p className="text-lg font-bold text-white">{formatCurrency(profile.cocaColaEarning)}</p>
           </div>
           <div>
-            <p className="text-xs text-white/50">Staff Earning</p>
+            <p className="text-xs text-white/50">Staff Earning (legacy field)</p>
             <p className="text-lg font-bold text-white">{formatCurrency(profile.staffEarning)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-white/50">Total referrals</p>
-            <p className="text-lg font-bold text-white">{profile.totalReferrals}</p>
           </div>
           <div>
             <p className="text-xs text-white/50">Package</p>
@@ -158,22 +147,55 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
           </div>
         </div>
 
-        {statusError && <Alert variant="error">{statusError}</Alert>}
-        <Button
-          variant="outline"
-          size="sm"
-          className="self-start"
-          disabled={statusBusy}
-          onClick={handleToggleStatus}
-        >
-          {statusBusy ? (
-            <Spinner />
-          ) : profile.accountStatus === "active" ? (
-            "Suspend account"
-          ) : (
-            "Unsuspend account"
-          )}
-        </Button>
+        <UserStatusActions
+          uid={uid}
+          userName={profile.fullName}
+          accountStatus={profile.accountStatus}
+          reviewer={reviewer}
+          onChanged={retry}
+        />
+      </div>
+
+      <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
+        <h2 className="text-sm font-semibold text-white">Referral</h2>
+        {insightsLoading ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="h-10 w-full animate-pulse rounded-lg bg-white/5" />
+            ))}
+          </div>
+        ) : insightsError ? (
+          <div className="flex flex-col items-start gap-3">
+            <Alert variant="error">{insightsError}</Alert>
+            <Button variant="outline" size="sm" onClick={retryInsights}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div>
+              <p className="text-xs text-white/50">Referred by</p>
+              <p className="text-sm font-bold text-white">
+                {insights?.referrerName ?? (profile.referredBy ? "Unknown" : "No referrer")}
+              </p>
+              {insights?.referrerEmail && <p className="text-xs text-white/40">{insights.referrerEmail}</p>}
+            </div>
+            <div>
+              <p className="text-xs text-white/50">Direct referrals</p>
+              <p className="text-lg font-bold text-white">{insights?.directTotal ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/50">Active direct referrals</p>
+              <p className="text-lg font-bold text-white">{insights?.directActive ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-white/50">Total commission generated</p>
+              <p className="text-lg font-bold text-white">
+                {formatCurrency(insights?.totalCommissionGenerated ?? 0)}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <WalletAdjustmentForm uid={uid} userName={profile.fullName} reviewer={reviewer} onAdjusted={retry} />
@@ -217,11 +239,7 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
               title={transaction.type}
               subtitle={formatDate(transaction.createdAt)}
               amount={transaction.amount}
-              direction={
-                transaction.type === "withdrawal" || transaction.type === "package_purchase"
-                  ? "out"
-                  : "in"
-              }
+              direction={transactionDirectionFor(transaction)}
               status={transaction.status}
               statusClassName={NEUTRAL_BADGE}
             />
@@ -268,6 +286,34 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
           )}
         />
       </div>
+
+      <div className="flex flex-col gap-4 rounded-2xl border border-red-500/20 bg-surface-2 p-4 sm:p-6">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Danger zone</h2>
+          <p className="text-xs text-white/50">
+            Permanently deletes this user&apos;s sign-in account and profile. Financial and referral
+            history is preserved. This cannot be undone.
+          </p>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="self-start"
+          onClick={() => setDeleteModalOpen(true)}
+        >
+          Permanently delete account
+        </Button>
+      </div>
+
+      {deleteModalOpen && (
+        <DeleteUserModal
+          uid={uid}
+          userName={profile.fullName}
+          userEmail={profile.email}
+          onClose={() => setDeleteModalOpen(false)}
+          onDeleted={() => router.push("/admin/users")}
+        />
+      )}
     </div>
   );
 }

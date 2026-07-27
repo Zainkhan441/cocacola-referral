@@ -3,11 +3,11 @@ import type { TeamMemberWithId } from "@/features/user/hooks/use-team-members";
 
 type TeamMemberRowProps = {
   member: TeamMemberWithId;
-  now: number;
 };
 
-export function TeamMemberRow({ member, now }: TeamMemberRowProps) {
-  const isActive = member.packageExpiresAt != null && now < member.packageExpiresAt.toMillis();
+export function TeamMemberRow({ member }: TeamMemberRowProps) {
+  // Packages never expire — "active" is simply whether a package is
+  // currently assigned at all (see team-members.ts).
   const hasPackage = member.packageId != null;
 
   return (
@@ -26,14 +26,12 @@ export function TeamMemberRow({ member, now }: TeamMemberRowProps) {
       </div>
       <span
         className={`w-fit flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-          !hasPackage
-            ? "border-white/15 bg-white/5 text-white/50"
-            : isActive
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-              : "border-red-500/30 bg-red-500/10 text-red-300"
+          hasPackage
+            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+            : "border-white/15 bg-white/5 text-white/50"
         }`}
       >
-        {!hasPackage ? "No package" : isActive ? "Active" : "Expired"}
+        {hasPackage ? "Active" : "No package"}
       </span>
     </div>
   );

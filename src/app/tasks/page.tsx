@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
@@ -10,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useUserProfile } from "@/features/user/hooks/use-user-profile";
 import { usePackageLimits } from "@/features/wallet/hooks/use-package-limits";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
@@ -23,7 +23,6 @@ type FrequencyFilter = TaskFrequency | "all";
 
 export default function TasksPage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
   const {
     profile,
     loading: profileLoading,
@@ -32,6 +31,7 @@ export default function TasksPage() {
   } = useUserProfile();
   const { tasks, loading: tasksLoading, error: tasksError, retry: retryTasks } = useAvailableTasks();
   const { packageInfo } = usePackageLimits(profile?.package ?? null);
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
   const [search, setSearch] = useState("");
   const [frequencyFilter, setFrequencyFilter] = useState<FrequencyFilter>("all");
@@ -40,23 +40,9 @@ export default function TasksPage() {
   // enforcement is server-side (firestore.rules), this is just UI gating.
   const [now] = useState(() => Date.now());
 
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
-
-  const hasQualifyingPackage = Boolean(
-    profile?.package &&
-      profile.packageExpiresAt &&
-      now < profile.packageExpiresAt.toMillis() &&
-      packageInfo?.isActive,
-  );
+  // A package being disabled only blocks NEW purchases — existing holders
+  // keep full task eligibility, so this does not depend on isActive.
+  const hasQualifyingPackage = Boolean(profile?.package);
 
   function disabledReasonFor(task: TaskDoc): string | null {
     if (!hasQualifyingPackage) return "Requires an active package";
@@ -89,8 +75,6 @@ export default function TasksPage() {
       </div>
     );
   }
-
-  const gateLoading = authLoading || !user || !user.emailVerified;
 
   return (
     <div className="min-h-screen bg-black">

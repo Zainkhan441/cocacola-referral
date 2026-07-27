@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/format";
 import type { TransactionStatus, TransactionType } from "@/lib/firestore/transactions";
 import { useRecentTransactions } from "@/features/user/hooks/use-recent-transactions";
 import { HistoryCard, HistoryCardSkeleton, HistoryListRow } from "@/features/dashboard/components/history-card";
+import { transactionDirectionFor } from "@/lib/transaction-direction";
 
 const TYPE_LABELS: Record<TransactionType, string> = {
   deposit: "Deposit",
@@ -16,11 +17,6 @@ const TYPE_LABELS: Record<TransactionType, string> = {
   bonus_reward: "Bonus reward",
   admin_adjustment: "Balance adjustment",
 };
-
-const OUTFLOW_TYPES: ReadonlySet<TransactionType> = new Set([
-  "withdrawal",
-  "package_purchase",
-]);
 
 const STATUS_STYLES: Record<TransactionStatus, string> = {
   pending: "border-amber-500/30 bg-amber-500/10 text-amber-300",
@@ -46,7 +42,7 @@ export function RecentTransactions() {
           title={TYPE_LABELS[transaction.type]}
           subtitle={transaction.description || formatDate(transaction.createdAt)}
           amount={transaction.amount}
-          direction={OUTFLOW_TYPES.has(transaction.type) ? "out" : "in"}
+          direction={transactionDirectionFor(transaction)}
           status={transaction.status}
           statusClassName={STATUS_STYLES[transaction.status]}
         />

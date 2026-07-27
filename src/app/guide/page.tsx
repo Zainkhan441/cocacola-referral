@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useUserProfile } from "@/features/user/hooks/use-user-profile";
+import { useAppAccessGate } from "@/features/auth/hooks/use-app-access-gate";
 import { FirebaseSetupNotice } from "@/features/auth/components/firebase-setup-notice";
 import { AppHeader } from "@/components/layout/app-header";
 import { usePublishedFaq } from "@/features/guide/hooks/use-published-faq";
@@ -139,19 +140,9 @@ function RulesPanel() {
 
 export default function GuidePage() {
   const { user, loading: authLoading, configured } = useAuth();
-  const router = useRouter();
+  const { profile, loading: profileLoading } = useUserProfile();
+  const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
   const [section, setSection] = useState<SectionKey>("faq");
-
-  useEffect(() => {
-    if (!configured || authLoading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.emailVerified) {
-      router.replace("/verify-email");
-    }
-  }, [configured, authLoading, user, router]);
 
   if (!configured) {
     return (
@@ -160,8 +151,6 @@ export default function GuidePage() {
       </div>
     );
   }
-
-  const gateLoading = authLoading || !user || !user.emailVerified;
 
   return (
     <div className="min-h-screen bg-black">

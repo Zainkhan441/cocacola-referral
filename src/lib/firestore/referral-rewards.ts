@@ -13,7 +13,6 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { typedCollection } from "@/lib/firestore/converter";
-import type { RewardType } from "@/lib/firestore/referral-settings";
 
 const REFERRAL_REWARDS_PATH = "referralRewards";
 const RECENT_REFERRAL_REWARDS_LIMIT = 5;
@@ -22,10 +21,11 @@ export const REFERRAL_REWARDS_PAGE_SIZE = 20;
 export type ReferralRewardStatus = "pending" | "credited";
 
 // Written only by the admin-run package-purchase approval transaction (see
-// approveDeposit), one per (depositId, level) pair — the doc id is
-// deterministic (`${depositId}_L${level}`, see referralRewardDocRef below) so
-// a retried transaction attempt can never create two reward records for the
-// same purchase and level.
+// approveDeposit) — one flat commission per deposit, paid to the
+// purchaser's DIRECT referrer only (not a multi-level payout). The doc id is
+// the depositId itself (see referralRewardDocRef below), so a retried
+// transaction attempt can never create two reward records for the same
+// purchase.
 export type ReferralRewardDoc = {
   earnerUid: string;
   // Denormalized at payout time so the admin reward-logs page can display
@@ -33,14 +33,9 @@ export type ReferralRewardDoc = {
   earnerName: string;
   sourceUid: string;
   sourceName: string;
-  level: number;
   amount: number;
-  // The rate actually applied at payout time — kept here (not just looked up
-  // from the live referralLevelSettings doc) so the reward ledger stays an
-  // honest historical record even after an admin later edits that level's rate.
-  rewardType: RewardType;
-  rewardValue: number;
   packageId: string;
+  packageName: string;
   packagePrice: number;
   depositId: string;
   status: ReferralRewardStatus;
@@ -51,12 +46,8 @@ export function referralRewardsCollection(db: Firestore) {
   return typedCollection<ReferralRewardDoc>(db, REFERRAL_REWARDS_PATH);
 }
 
-export function referralRewardDocId(depositId: string, level: number): string {
-  return `${depositId}_L${level}`;
-}
-
-export function referralRewardDocRef(db: Firestore, depositId: string, level: number) {
-  return doc(referralRewardsCollection(db), referralRewardDocId(depositId, level));
+export function referralRewardDocRef(db: Firestore, depositId: string) {
+  return doc(referralRewardsCollection(db), depositId);
 }
 
 // Requires a composite index (earnerUid asc, createdAt desc) — see firestore.indexes.json.
@@ -93,24 +84,12 @@ export async function getReferralEarningsTotal(
 
 // --- Admin reward logs ---
 
-export type RewardLevelFilter = number | "all";
-
-// Requires a composite index (level asc, createdAt desc) for the level-filtered
-// branch — see firestore.indexes.json. The unfiltered branch only needs the
-// automatic single-field index on createdAt.
+// Requires a single-field index on createdAt (automatic).
 export function adminReferralRewardsPageQuery(
   db: Firestore,
-  levelFilter: RewardLevelFilter,
   cursor: QueryDocumentSnapshot<ReferralRewardDoc> | null,
 ): Query<ReferralRewardDoc> {
-  const base =
-    levelFilter === "all"
-      ? query(referralRewardsCollection(db), orderBy("createdAt", "desc"))
-      : query(
-          referralRewardsCollection(db),
-          where("level", "==", levelFilter),
-          orderBy("createdAt", "desc"),
-        );
+  const base = query(referralRewardsCollection(db), orderBy("createdAt", "desc"));
   return cursor
     ? query(base, startAfter(cursor), limit(REFERRAL_REWARDS_PAGE_SIZE))
     : query(base, limit(REFERRAL_REWARDS_PAGE_SIZE));

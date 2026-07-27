@@ -1,4 +1,5 @@
 import {
+  deleteDoc,
   doc,
   getDoc,
   orderBy,
@@ -14,28 +15,29 @@ import { typedCollection } from "@/lib/firestore/converter";
 
 const PACKAGES_PATH = "packages";
 
-// Package definitions are fully admin-managed (Milestone 8). Clients read
-// their own active package's limits or browse purchasable packages; only an
-// admin may create/edit one. Referral payouts are NOT configured here — see
-// referral-settings.ts's 12-level `referralLevelSettings`, the single source
-// of truth for every level's reward rate (Milestone 11 removed the old
-// single flat `referralBonus` field to avoid two competing reward sources).
+// Package definitions are fully admin-managed. Clients read their own
+// active package's limits or browse purchasable packages; only an admin may
+// create/edit one. A package never expires once purchased — it stays active
+// indefinitely until an admin manually disables it (isActive: false) or the
+// holder purchases a different package (see approveDeposit's "always
+// fresh" replacement). Referral payout is a single flat amount per package
+// (paid once, to the purchaser's direct referrer only, on approval — not a
+// multi-level commission structure).
 export type PackageDoc = {
   id: string;
   name: string;
   price: number;
   dailyEarning: number;
-  withdrawalLimitPerRequest: number;
-  dailyWithdrawalLimit: number;
-  // How long a purchase of this package stays active once approved — see
-  // users/{uid}.packageExpiresAt, computed as activation + durationDays.
-  durationDays: number;
+  // Paid once to the purchaser's direct referrer's Staff Earning wallet when
+  // a deposit for this package is approved — see approveDeposit. Rs 0 (or
+  // no referrer) means no commission is paid.
+  referralCommission: number;
   // Maximum number of task completions per day for a holder of this
   // package — resets every rolling 24h window, same mechanism as an
   // individual daily task's own cooldown (see taskCooldowns.ts).
   dailyTaskLimit: number;
   // Marketing bullet points shown on the packages page; purely descriptive,
-  // never used in any earning/withdrawal/expiry calculation.
+  // never used in any earning/withdrawal calculation.
   features: string[];
   isActive: boolean;
   createdAt: Timestamp;
@@ -68,9 +70,7 @@ export type PackageInput = {
   name: string;
   price: number;
   dailyEarning: number;
-  withdrawalLimitPerRequest: number;
-  dailyWithdrawalLimit: number;
-  durationDays: number;
+  referralCommission: number;
   dailyTaskLimit: number;
   features: string[];
   isActive: boolean;
@@ -110,4 +110,14 @@ export async function setPackageActive(
     isActive,
     updatedAt: serverTimestamp(),
   });
+}
+
+// Permanent removal of the package document. Callers MUST verify (via
+// usersWithPackageQuery / pendingDepositsForPackageQuery) that no user
+// currently holds this package and no pending deposit references it before
+// calling this — see deletePackageAction, which is the only caller. This
+// function itself performs no safety checks; it's a thin wrapper so that
+// invariant lives in exactly one place.
+export async function deletePackage(db: Firestore, packageId: string): Promise<void> {
+  await deleteDoc(packageDocRef(db, packageId));
 }

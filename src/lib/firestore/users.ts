@@ -21,7 +21,16 @@ export const USERS_PAGE_SIZE = 20;
 // prefix-range query (matches every string starting with the prefix).
 const PREFIX_RANGE_END = "";
 
-export type AccountStatus = "active" | "suspended" | "banned";
+// active: normal use. suspended: temporary admin hold, reversible via
+// Unsuspend — meant for short-term policy issues. archived: a long-term
+// admin soft-remove, reversible via Restore — hidden from the default admin
+// user list, meant for accounts an admin has decided to retire/deactivate
+// (e.g. inactive, duplicate, or a closure request) without deleting
+// anything. banned: reserved, not currently exposed in the admin UI.
+// Suspended/archived/banned all block sign-in and every self-service
+// financial write (see firestore.rules isActiveAccount()) — this is
+// enforced server-side, not just hidden buttons.
+export type AccountStatus = "active" | "suspended" | "archived" | "banned";
 
 export type UserDoc = {
   uid: string;
@@ -31,6 +40,11 @@ export type UserDoc = {
   // before this field existed won't match name search until it's backfilled.
   fullNameLower: string;
   email: string;
+  // Collected at signup, separate from any per-deposit "sender Easypaisa
+  // number" (see DepositDoc.senderAccountNumber) — this is the account's
+  // own contact number, never assumed to be the number a payment was sent
+  // from.
+  mobileNumber: string;
   referralCode: string;
   referredBy: string | null;
   // Deposit/Recharge Balance — the ONLY thing that ever credits this field
@@ -78,6 +92,16 @@ export type UserDoc = {
   packagePurchasedAt: Timestamp | null;
   packageActivatedAt: Timestamp | null;
   packageExpiresAt: Timestamp | null;
+  // Snapshotted from the package's own dailyEarning/dailyTaskLimit at the
+  // moment THIS purchase was approved (see approveDeposit) — never re-read
+  // from the live packages/{id} document afterward. This is what protects
+  // an existing holder from an admin later editing the package template:
+  // the terms they were approved under are frozen here, not recomputed.
+  // Null on accounts created (or last approved) before this field existed;
+  // every reader treats null as "fall back to the package's current live
+  // value" so no historical data needed to change for this to ship safely.
+  packageDailyEarning: number | null;
+  packageDailyTaskLimit: number | null;
   // Set atomically with a pending package-purchase deposit's own creation,
   // cleared when that deposit is approved or rejected — the single source
   // of truth Firestore rules use to block a second package-purchase
@@ -109,6 +133,9 @@ export type UserDoc = {
   languagePreference: "en" | "ur";
   accountStatus: AccountStatus;
   role: UserRole;
+  // No email-verification flow exists — every account is usable immediately
+  // after signup. Kept (always true for new users) only because existing
+  // documents already carry it; nothing reads it for access control anymore.
   emailVerified: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
@@ -126,9 +153,9 @@ type CreateUserDocumentInput = {
   uid: string;
   fullName: string;
   email: string;
+  mobileNumber: string;
   referralCode: string;
   referredBy: string | null;
-  emailVerified: boolean;
 };
 
 // Exported so callers that need to write this alongside other documents in
@@ -140,6 +167,7 @@ export function buildInitialUserData(input: CreateUserDocumentInput) {
     fullName: input.fullName,
     fullNameLower: input.fullName.trim().toLowerCase(),
     email: input.email,
+    mobileNumber: input.mobileNumber,
     referralCode: input.referralCode,
     referredBy: input.referredBy,
     walletBalance: 0,
@@ -155,6 +183,8 @@ export function buildInitialUserData(input: CreateUserDocumentInput) {
     packagePurchasedAt: null,
     packageActivatedAt: null,
     packageExpiresAt: null,
+    packageDailyEarning: null,
+    packageDailyTaskLimit: null,
     pendingPackagePurchaseId: null,
     pendingWithdrawalCurrentBalance: null,
     pendingWithdrawalCocaColaEarning: null,
@@ -164,20 +194,10 @@ export function buildInitialUserData(input: CreateUserDocumentInput) {
     languagePreference: "en" as const,
     accountStatus: "active" as const,
     role: "user" as const,
-    emailVerified: input.emailVerified,
+    emailVerified: true,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
-}
-
-export async function markUserEmailVerified(
-  db: Firestore,
-  uid: string,
-): Promise<void> {
-  await updateDoc(userDocRef(db, uid), {
-    emailVerified: true,
-    updatedAt: serverTimestamp(),
-  });
 }
 
 // --- Admin-only: listing, search, and account mutation ---
@@ -214,15 +234,11 @@ export function searchUsersByReferralCodeQuery(db: Firestore, code: string): Que
   );
 }
 
-export async function setAccountStatus(
-  db: Firestore,
-  uid: string,
-  accountStatus: AccountStatus,
-): Promise<void> {
-  await updateDoc(userDocRef(db, uid), {
-    accountStatus,
-    updatedAt: serverTimestamp(),
-  });
+// Existence-check only (limit 1), never for listing/pagination — used by
+// admin package deletion to refuse deleting a package still assigned to at
+// least one user (see features/admin/lib/package-actions.ts).
+export function usersWithPackageQuery(db: Firestore, packageId: string): Query<UserDoc> {
+  return query(usersCollection(db), where("package", "==", packageId), limit(1));
 }
 
 export async function setUserPackage(

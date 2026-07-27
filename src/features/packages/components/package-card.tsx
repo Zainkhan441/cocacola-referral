@@ -34,20 +34,8 @@ export function PackageCard({ pkg, isCurrent, disabledReason, onSelect }: Packag
           <p className="font-semibold text-white">{formatCurrency(pkg.dailyEarning)}</p>
         </div>
         <div>
-          <p className="text-white/40">Withdrawal limit</p>
-          <p className="font-semibold text-white">
-            {formatCurrency(pkg.withdrawalLimitPerRequest)}/request
-          </p>
-        </div>
-        <div>
-          <p className="text-white/40">Daily withdrawal limit</p>
-          <p className="font-semibold text-white">{formatCurrency(pkg.dailyWithdrawalLimit)}</p>
-        </div>
-        <div>
-          <p className="text-white/40">Duration</p>
-          <p className="font-semibold text-white">
-            {pkg.durationDays} day{pkg.durationDays === 1 ? "" : "s"}
-          </p>
+          <p className="text-white/40">Daily tasks</p>
+          <p className="font-semibold text-white">{pkg.dailyTaskLimit}</p>
         </div>
       </div>
 

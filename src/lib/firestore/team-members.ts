@@ -7,11 +7,11 @@ import {
   query,
   serverTimestamp,
   startAfter,
-  Timestamp,
   where,
   type Firestore,
   type Query,
   type QueryDocumentSnapshot,
+  type Timestamp,
 } from "firebase/firestore";
 import { typedCollection } from "@/lib/firestore/converter";
 
@@ -41,6 +41,11 @@ export type TeamMemberDoc = {
   ancestorUid: string;
   memberUid: string;
   memberName: string;
+  // Denormalized at signup alongside memberName (same trust boundary — see
+  // the note above) so the Staff Earning referral list can show a masked
+  // identifier without the ancestor ever needing read access to the
+  // member's own users/{uid} document.
+  memberEmail: string;
   level: number;
   joinedAt: Timestamp;
   packageId: string | null;
@@ -50,6 +55,18 @@ export type TeamMemberDoc = {
   // as PackageStatusCard/WithdrawalForm, so it never needs a scheduled sweep
   // to stay fresh.
   packageExpiresAt: Timestamp | null;
+  // The four fields below are written ONLY by the trusted admin
+  // approveDeposit transaction (never self-reported like the fields above),
+  // and only ever populated on the DIRECT referrer's (level 1) record —
+  // commission is never paid past level 1, so these stay at their defaults
+  // for every level-2+ record. packagePrice/packageApprovedAt record what was
+  // actually approved for this specific member; commissionEarned is a
+  // running total of every commission this ancestor has earned FROM this
+  // one member (kept only for display — the authoritative ledger is the
+  // referralRewards collection).
+  packagePrice: number | null;
+  packageApprovedAt: Timestamp | null;
+  commissionEarned: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 };
@@ -66,11 +83,15 @@ type BuildTeamMemberInput = {
   ancestorUid: string;
   memberUid: string;
   memberName: string;
+  memberEmail: string;
   level: number;
   joinedAt: Timestamp;
   packageId?: string | null;
   packageName?: string | null;
   packageExpiresAt?: Timestamp | null;
+  packagePrice?: number | null;
+  packageApprovedAt?: Timestamp | null;
+  commissionEarned?: number;
 };
 
 // Exported so callers writing this alongside sibling documents in the same
@@ -81,11 +102,15 @@ export function buildTeamMemberData(input: BuildTeamMemberInput) {
     ancestorUid: input.ancestorUid,
     memberUid: input.memberUid,
     memberName: input.memberName,
+    memberEmail: input.memberEmail,
     level: input.level,
     joinedAt: input.joinedAt,
     packageId: input.packageId ?? null,
     packageName: input.packageName ?? null,
     packageExpiresAt: input.packageExpiresAt ?? null,
+    packagePrice: input.packagePrice ?? null,
+    packageApprovedAt: input.packageApprovedAt ?? null,
+    commissionEarned: input.commissionEarned ?? 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -130,13 +155,36 @@ export async function getTeamTotalCount(db: Firestore, ancestorUid: string): Pro
   return snapshot.data().total;
 }
 
-// Requires a composite index (ancestorUid asc, packageExpiresAt asc).
+// "Active" means this downline member currently holds a package (packages
+// never expire — see PackageDoc — so there is no time dimension here
+// anymore, just presence/absence of an assignment). Requires a composite
+// index (ancestorUid asc, packageId asc).
 export async function getTeamActiveCount(db: Firestore, ancestorUid: string): Promise<number> {
   const snapshot = await getAggregateFromServer(
     query(
       teamMembersCollection(db),
       where("ancestorUid", "==", ancestorUid),
-      where("packageExpiresAt", ">", Timestamp.now()),
+      where("packageId", "!=", null),
+    ),
+    { total: count() },
+  );
+  return snapshot.data().total;
+}
+
+// Total DIRECT (level 1) referrals regardless of package status — the
+// "Total direct referrals" figure for the Staff Earning section, distinct
+// from getTeamTotalCount which sums every level 1-12. Requires the same
+// (ancestorUid asc, level asc, joinedAt desc) composite index as
+// teamMembersPageQuery's per-level branch.
+export async function getDirectTotalReferralCount(
+  db: Firestore,
+  ancestorUid: string,
+): Promise<number> {
+  const snapshot = await getAggregateFromServer(
+    query(
+      teamMembersCollection(db),
+      where("ancestorUid", "==", ancestorUid),
+      where("level", "==", 1),
     ),
     { total: count() },
   );
@@ -145,8 +193,8 @@ export async function getTeamActiveCount(db: Firestore, ancestorUid: string): Pr
 
 // The "Level" that gates Coca-Cola Earning withdrawals (see
 // settings/withdrawalRules): the count of the caller's own DIRECT (level 1)
-// referrals who currently have an active, unexpired package. Requires a
-// composite index (ancestorUid asc, level asc, packageExpiresAt asc).
+// referrals who currently hold a package. Requires a composite index
+// (ancestorUid asc, level asc, packageId asc).
 export async function getDirectActiveReferralCount(
   db: Firestore,
   ancestorUid: string,
@@ -156,7 +204,7 @@ export async function getDirectActiveReferralCount(
       teamMembersCollection(db),
       where("ancestorUid", "==", ancestorUid),
       where("level", "==", 1),
-      where("packageExpiresAt", ">", Timestamp.now()),
+      where("packageId", "!=", null),
     ),
     { total: count() },
   );

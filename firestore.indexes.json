@@ -1,6 +1,38 @@
 {
   "indexes": [
     {
+      "collectionGroup": "deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "withdrawals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "taskSubmissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bonusClaims",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "transactions",
       "queryScope": "COLLECTION",
       "fields": [
@@ -39,6 +71,14 @@
       "fields": [
         { "fieldPath": "uid", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "deposits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "packageId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
       ]
     },
     {
@@ -119,7 +159,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "ancestorUid", "order": "ASCENDING" },
-        { "fieldPath": "packageExpiresAt", "order": "ASCENDING" }
+        { "fieldPath": "packageId", "order": "ASCENDING" }
       ]
     },
     {
@@ -128,7 +168,7 @@
       "fields": [
         { "fieldPath": "ancestorUid", "order": "ASCENDING" },
         { "fieldPath": "level", "order": "ASCENDING" },
-        { "fieldPath": "packageExpiresAt", "order": "ASCENDING" }
+        { "fieldPath": "packageId", "order": "ASCENDING" }
       ]
     },
     {

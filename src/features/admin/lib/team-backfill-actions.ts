@@ -82,11 +82,21 @@ export async function backfillTeamMembersAction(reviewer: Reviewer): Promise<Bac
           ancestorUid,
           memberUid: member.uid,
           memberName: member.fullName,
+          memberEmail: member.email,
           level: index + 1,
           joinedAt: member.createdAt,
           packageId: member.package,
           packageName,
           packageExpiresAt: member.packageExpiresAt,
+          // This backfill only repairs missing display records for
+          // pre-Milestone-11 signups — it never had (and still doesn't
+          // have) access to what a historical purchase was actually
+          // approved/paid at, so these stay at their safe "unknown"
+          // defaults rather than guessing. Never overwrites a record that
+          // already has real values (see the `existing.exists()` guard above).
+          packagePrice: null,
+          packageApprovedAt: null,
+          commissionEarned: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });

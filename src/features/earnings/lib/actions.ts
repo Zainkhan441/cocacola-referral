@@ -42,17 +42,23 @@ export async function runAutomaticDailyEarning(uid: string): Promise<number | nu
 
     if (!user.package) return;
 
+    // Existing holders are never affected by an admin later disabling this
+    // package template (isActive only blocks NEW purchases, enforced at
+    // deposit-creation time) — so eligibility here does not depend on it.
     const packageSnap = await transaction.get(packageDocRef(firestore, user.package));
-    if (!packageSnap.exists() || !packageSnap.data().isActive) return;
+    if (!packageSnap.exists()) return;
     const pkg = packageSnap.data();
-
-    if (!user.packageExpiresAt || Date.now() >= user.packageExpiresAt.toMillis()) return;
 
     if (user.lastDailyClaimAt && !isNewUtcDay(user.lastDailyClaimAt.toMillis(), Date.now())) {
       return;
     }
 
-    const dailyEarning = pkg.dailyEarning;
+    // This holder's own rate, snapshotted at the approval that granted them
+    // this package — never the package's current live rate, so a later
+    // admin edit to the template can't retroactively change what they earn.
+    // Falls back to the live rate only for pre-migration accounts approved
+    // before this snapshot field existed.
+    const dailyEarning = user.packageDailyEarning ?? pkg.dailyEarning;
     const newCocaColaEarning = user.cocaColaEarning + dailyEarning;
     const newTotalEarnings = user.totalEarnings + dailyEarning;
     const now = serverTimestamp();

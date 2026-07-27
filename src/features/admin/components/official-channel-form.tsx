@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useOfficialChannel } from "@/features/channel/hooks/use-official-channel";
 import { updateOfficialChannelAction } from "@/features/admin/lib/channel-actions";
+import { validateOptionalSafeUrl } from "@/features/admin/lib/cms-validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 
 export function OfficialChannelForm() {
@@ -55,12 +56,6 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [contactPhone, setContactPhone] = useState(initial?.contactPhone ?? "");
   const [contactAddress, setContactAddress] = useState(initial?.contactAddress ?? "");
-  const [easypaisaAccountNumber, setEasypaisaAccountNumber] = useState(
-    initial?.easypaisaAccountNumber ?? "",
-  );
-  const [easypaisaAccountName, setEasypaisaAccountName] = useState(
-    initial?.easypaisaAccountName ?? "",
-  );
 
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -71,6 +66,21 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
     if (submitting || !adminUid) return;
     setFormError(null);
     setSuccess(false);
+
+    // Every link here renders as a real <a href> on the public /channel page
+    // (target="_blank") — only http(s) is ever accepted, same as every CMS
+    // URL field, to keep a javascript:/data: URL from ever being stored and
+    // then executed in another user's browser when they click the link.
+    const urlError =
+      validateOptionalSafeUrl(telegramUrl, "Telegram URL") ??
+      validateOptionalSafeUrl(whatsappUrl, "WhatsApp URL") ??
+      validateOptionalSafeUrl(youtubeUrl, "YouTube URL") ??
+      validateOptionalSafeUrl(websiteUrl, "Website URL") ??
+      validateOptionalSafeUrl(bannerImageUrl, "Banner image URL");
+    if (urlError) {
+      setFormError(urlError);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -85,8 +95,6 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
           contactEmail: contactEmail.trim() || null,
           contactPhone: contactPhone.trim() || null,
           contactAddress: contactAddress.trim() || null,
-          easypaisaAccountNumber: easypaisaAccountNumber.trim() || null,
-          easypaisaAccountName: easypaisaAccountName.trim() || null,
         },
         { adminUid, adminName },
       );
@@ -171,27 +179,6 @@ function OfficialChannelFormFields({ initial, adminUid, adminName }: OfficialCha
           type="text"
           value={contactAddress}
           onChange={(event) => setContactAddress(event.target.value)}
-        />
-      </div>
-
-      <h2 className="text-sm font-semibold text-white">Easypaisa payment details</h2>
-      <p className="text-xs text-white/50">
-        Shown to every user on the Deposit and Package Purchase forms — this is the account they
-        must pay into before submitting a reference ID and proof screenshot.
-      </p>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField
-          label="Easypaisa account number"
-          type="text"
-          placeholder="03XXXXXXXXX"
-          value={easypaisaAccountNumber}
-          onChange={(event) => setEasypaisaAccountNumber(event.target.value)}
-        />
-        <FormField
-          label="Easypaisa account title"
-          type="text"
-          value={easypaisaAccountName}
-          onChange={(event) => setEasypaisaAccountName(event.target.value)}
         />
       </div>
 

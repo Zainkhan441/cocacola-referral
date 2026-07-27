@@ -1,13 +1,8 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/format";
-import type { UserDoc, AccountStatus } from "@/lib/firestore/users";
-
-const STATUS_STYLES: Record<AccountStatus, string> = {
-  active: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-  suspended: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  banned: "border-red-500/30 bg-red-500/10 text-red-300",
-};
+import { STATUS_BADGE_STYLES } from "@/features/admin/components/user-status-actions";
+import type { UserDoc } from "@/lib/firestore/users";
 
 type UserRowProps = {
   user: UserDoc;
@@ -21,7 +16,7 @@ export function UserRow({ user, packageNameById }: UserRowProps) {
         <div className="flex items-center gap-2">
           <p className="font-semibold text-white">{user.fullName}</p>
           <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_STYLES[user.accountStatus]}`}
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_BADGE_STYLES[user.accountStatus]}`}
           >
             {user.accountStatus}
           </span>

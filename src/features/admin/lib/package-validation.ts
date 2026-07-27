@@ -1,23 +1,41 @@
+// Every numeric field arrives from a text input as a raw string — parsing
+// happens here, inside validation, so an empty string or a non-numeric
+// string (e.g. "12abc") is caught explicitly rather than silently becoming
+// 0 or NaN via a bare Number(...) call before validation ever runs.
+function parseNumericInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function validatePackageName(value: string): string | null {
   if (!value.trim()) return "Package name is required.";
   if (value.trim().length < 2) return "That name looks too short.";
   return null;
 }
 
-export function validateNonNegativeAmount(value: number, label: string): string | null {
-  if (!Number.isFinite(value) || value < 0) return `${label} must be a non-negative number.`;
+// Price must be strictly greater than 0 — distinct from the other amount
+// fields below, which are allowed to be 0 (e.g. a package with no referral
+// commission).
+export function validatePackagePrice(raw: string): string | null {
+  const value = parseNumericInput(raw);
+  if (value == null) return "Price must be a valid number.";
+  if (value <= 0) return "Price must be greater than 0.";
   return null;
 }
 
-export function validateDurationDays(value: number): string | null {
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    return "Duration must be a whole number of days greater than 0.";
-  }
+export function validateNonNegativeAmount(raw: string, label: string): string | null {
+  const value = parseNumericInput(raw);
+  if (value == null) return `${label} must be a valid number.`;
+  if (value < 0) return `${label} must be a non-negative number.`;
   return null;
 }
 
-export function validateDailyTaskLimit(value: number): string | null {
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+export function validateDailyTaskLimit(raw: string): string | null {
+  const value = parseNumericInput(raw);
+  if (value == null) return "Daily task limit must be a valid number.";
+  if (!Number.isInteger(value) || value < 0) {
     return "Daily task limit must be a whole number, 0 or greater.";
   }
   return null;

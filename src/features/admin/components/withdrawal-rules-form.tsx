@@ -75,12 +75,9 @@ function WithdrawalRulesFormFields({ initial, adminUid, adminName }: WithdrawalR
     setFormError(null);
     setSuccess(false);
 
-    const parsedMinWithdraw = Number(currentBalanceMinWithdraw);
-    const parsedRequiredLevel = Number(cocaColaRequiredLevel);
-
     const errors: FieldErrors = {
-      currentBalanceMinWithdraw: validateCurrentBalanceMinWithdraw(parsedMinWithdraw) ?? undefined,
-      cocaColaRequiredLevel: validateCocaColaRequiredLevel(parsedRequiredLevel) ?? undefined,
+      currentBalanceMinWithdraw: validateCurrentBalanceMinWithdraw(currentBalanceMinWithdraw) ?? undefined,
+      cocaColaRequiredLevel: validateCocaColaRequiredLevel(cocaColaRequiredLevel) ?? undefined,
     };
     setFieldErrors(errors);
     if (Object.values(errors).some(Boolean)) return;
@@ -89,8 +86,8 @@ function WithdrawalRulesFormFields({ initial, adminUid, adminName }: WithdrawalR
     try {
       await updateWithdrawalRulesAction(
         {
-          currentBalanceMinWithdraw: parsedMinWithdraw,
-          cocaColaRequiredLevel: parsedRequiredLevel,
+          currentBalanceMinWithdraw: Number(currentBalanceMinWithdraw.trim()),
+          cocaColaRequiredLevel: Number(cocaColaRequiredLevel.trim()),
         },
         { adminUid, adminName },
       );

@@ -3,20 +3,19 @@
 import { useState } from "react";
 import { Check, Copy, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useOfficialChannel } from "@/features/channel/hooks/use-official-channel";
+import { usePaymentSettings } from "@/features/payments/hooks/use-payment-settings";
 
-// Shown above every deposit form (DepositForm, PackagePurchaseForm) — the
-// actual account a user must pay into before submitting a reference ID and
-// proof screenshot. Without this, a user has no way to know where to send
-// money at all. Renders a graceful fallback (never a blank/broken form) if
-// an admin hasn't configured it yet in Official Channel settings.
+// Shown above every payment-proof form (DepositForm, the package purchase
+// modal) — the actual account a user must pay into before submitting a
+// reference ID and proof screenshot. Reads through usePaymentSettings, so
+// an admin's saved change in Payment Settings appears here immediately on
+// next load, with no separate wiring per page.
 export function EasypaisaPaymentDetails() {
-  const { channel, loading } = useOfficialChannel();
+  const { accountTitle, accountNumber, loading } = usePaymentSettings();
   const [copied, setCopied] = useState(false);
 
-  async function handleCopy(accountNumber: string) {
+  async function handleCopy() {
     await navigator.clipboard.writeText(accountNumber);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -24,15 +23,6 @@ export function EasypaisaPaymentDetails() {
 
   if (loading) {
     return <Skeleton className="h-16 w-full rounded-xl" />;
-  }
-
-  if (!channel?.easypaisaAccountNumber) {
-    return (
-      <Alert variant="info">
-        Payment details haven’t been configured yet. Please contact support before sending any
-        payment.
-      </Alert>
-    );
   }
 
   return (
@@ -43,17 +33,10 @@ export function EasypaisaPaymentDetails() {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-lg font-bold tabular-nums text-white">{channel.easypaisaAccountNumber}</p>
-          {channel.easypaisaAccountName && (
-            <p className="text-sm text-white/60">{channel.easypaisaAccountName}</p>
-          )}
+          <p className="text-lg font-bold tabular-nums text-white">{accountNumber}</p>
+          <p className="text-sm text-white/60">{accountTitle}</p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => handleCopy(channel.easypaisaAccountNumber as string)}
-        >
+        <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
           {copied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
           {copied ? "Copied" : "Copy"}
         </Button>

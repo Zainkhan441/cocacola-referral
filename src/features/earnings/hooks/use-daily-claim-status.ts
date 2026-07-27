@@ -35,15 +35,10 @@ export function useDailyClaimStatus(profile: UserDoc | null): UseDailyClaimStatu
   const remainingMs = cooldownActive ? nextClaimAtMs! - now : 0;
 
   const globalEnabled = settings ? settings.dailyClaimsEnabled : true;
-  const packageExpired = profile?.package
-    ? !profile.packageExpiresAt || now >= profile.packageExpiresAt.toMillis()
-    : false;
 
   let blockedReason: string | null = null;
   if (!profile?.package) {
     blockedReason = "You need an active package to claim daily earnings.";
-  } else if (packageExpired) {
-    blockedReason = "Your package has expired. Renew it to keep claiming.";
   } else if (!globalEnabled) {
     blockedReason = "Daily claims are temporarily paused platform-wide.";
   } else if (packageInfo && !packageInfo.isActive) {
@@ -52,7 +47,6 @@ export function useDailyClaimStatus(profile: UserDoc | null): UseDailyClaimStatu
 
   const canClaim = Boolean(
     profile?.package &&
-      !packageExpired &&
       globalEnabled &&
       packageInfo?.isActive &&
       !cooldownActive,
