@@ -1,4 +1,4 @@
-# Project State — Coca-Cola Referral Platform
+# Project State — CocaColaEarn
 
 Last updated: 2026-07-28 (Global task-reward system, daily task rotation, all-or-nothing daily reward, package restructure, rebrand to CocaColaEarn)
 
