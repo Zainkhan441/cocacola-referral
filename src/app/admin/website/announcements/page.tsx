@@ -9,6 +9,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FormField } from "@/components/ui/form-field";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import { useAdminCmsAnnouncements } from "@/features/admin/hooks/use-admin-cms-announcements";
 import { CmsOrderedRowControls } from "@/features/admin/components/cms-ordered-row-controls";
 import {
@@ -147,6 +149,8 @@ function AnnouncementForm({
 export default function AdminCmsAnnouncementsPage() {
   const { user } = useAuth();
   const { announcements, loading, error, retry } = useAdminCmsAnnouncements();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CmsAnnouncementDoc | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -172,11 +176,17 @@ export default function AdminCmsAnnouncementsPage() {
 
   async function handleDelete(item: CmsAnnouncementDoc) {
     if (!user || busyId) return;
-    if (!window.confirm(`Delete "${item.title}"?`)) return;
+    const confirmed = await confirm({
+      title: `Delete "${item.title}"?`,
+      message: "This announcement will be permanently removed. This action cannot be undone.",
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(item.id);
     try {
       await deleteCmsAnnouncementAction(item.id, item.title, reviewer());
+      toast.success(`"${item.title}" was deleted.`);
     } catch {
       setRowError("Couldn’t delete that announcement.");
     } finally {

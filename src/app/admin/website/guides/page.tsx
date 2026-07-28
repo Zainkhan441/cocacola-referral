@@ -9,6 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FormField } from "@/components/ui/form-field";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import { useAdminCmsGuideSteps } from "@/features/admin/hooks/use-admin-cms-guide-steps";
 import { seedDefaultGuidesIfEmpty } from "@/features/admin/lib/cms-seed";
 import { CmsOrderedRowControls } from "@/features/admin/components/cms-ordered-row-controls";
@@ -129,6 +131,8 @@ export default function AdminCmsGuidesPage() {
   const { user } = useAuth();
   const [category, setCategory] = useState<CmsGuideCategory>("deposit");
   const { steps, loading, error, retry } = useAdminCmsGuideSteps(category);
+  const confirm = useConfirm();
+  const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CmsGuideStepDoc | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -161,11 +165,17 @@ export default function AdminCmsGuidesPage() {
 
   async function handleDelete(item: CmsGuideStepDoc) {
     if (!user || busyId) return;
-    if (!window.confirm(`Delete "${item.title}"?`)) return;
+    const confirmed = await confirm({
+      title: `Delete "${item.title}"?`,
+      message: "This guide step will be permanently removed. This action cannot be undone.",
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(item.id);
     try {
       await deleteCmsGuideStepAction(item.id, item.title, reviewer());
+      toast.success(`"${item.title}" was deleted.`);
     } catch {
       setRowError("Couldn’t delete that step.");
     } finally {

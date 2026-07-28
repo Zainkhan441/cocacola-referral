@@ -9,6 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FormField } from "@/components/ui/form-field";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import { useAdminCmsLinks } from "@/features/admin/hooks/use-admin-cms-links";
 import { seedDefaultNavLinksIfEmpty } from "@/features/admin/lib/cms-seed";
 import { CmsOrderedRowControls } from "@/features/admin/components/cms-ordered-row-controls";
@@ -126,6 +128,8 @@ export default function AdminCmsNavigationPage() {
   const { user } = useAuth();
   const [placement, setPlacement] = useState<CmsLinkPlacement>("header");
   const { links, loading, error, retry } = useAdminCmsLinks(placement);
+  const confirm = useConfirm();
+  const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CmsLinkDoc | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -158,11 +162,17 @@ export default function AdminCmsNavigationPage() {
 
   async function handleDelete(item: CmsLinkDoc) {
     if (!user || busyId) return;
-    if (!window.confirm(`Delete "${item.label}"?`)) return;
+    const confirmed = await confirm({
+      title: `Delete "${item.label}"?`,
+      message: "This navigation link will be permanently removed. This action cannot be undone.",
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(item.id);
     try {
       await deleteCmsLinkAction(item.id, item.label, reviewer());
+      toast.success(`"${item.label}" was deleted.`);
     } catch {
       setRowError("Couldn’t delete that link.");
     } finally {

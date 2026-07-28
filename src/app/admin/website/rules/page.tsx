@@ -8,6 +8,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { db } from "@/lib/firebase/client";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import { useAdminCmsRules } from "@/features/admin/hooks/use-admin-cms-rules";
 import { seedDefaultRulesIfEmpty } from "@/features/admin/lib/cms-seed";
 import { CmsOrderedRowControls } from "@/features/admin/components/cms-ordered-row-controls";
@@ -103,6 +105,8 @@ function RuleForm({
 export default function AdminCmsRulesPage() {
   const { user } = useAuth();
   const { rules, loading, error, retry } = useAdminCmsRules();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CmsRuleDoc | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -135,11 +139,17 @@ export default function AdminCmsRulesPage() {
 
   async function handleDelete(item: CmsRuleDoc) {
     if (!user || busyId) return;
-    if (!window.confirm("Delete this rule?")) return;
+    const confirmed = await confirm({
+      title: "Delete this rule?",
+      message: "This rule will be permanently removed. This action cannot be undone.",
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(item.id);
     try {
       await deleteCmsRuleAction(item.id, reviewer());
+      toast.success("Rule deleted.");
     } catch {
       setRowError("Couldn’t delete that rule.");
     } finally {

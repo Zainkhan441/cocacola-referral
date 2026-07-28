@@ -9,6 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FormField } from "@/components/ui/form-field";
 import { SelectField } from "@/components/ui/select-field";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import { useAdminCmsMedia } from "@/features/admin/hooks/use-admin-cms-media";
 import { createCmsMediaAction, deleteCmsMediaAction } from "@/features/admin/lib/cms-media-actions";
 import { validateRequiredText, validateSafeUrl } from "@/features/admin/lib/cms-validation";
@@ -82,17 +84,25 @@ function MediaForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
 export default function AdminCmsMediaPage() {
   const { user } = useAuth();
   const { media, loading, error, retry } = useAdminCmsMedia();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [formOpen, setFormOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
   async function handleDelete(id: string, label: string) {
     if (!user || busyId) return;
-    if (!window.confirm(`Remove "${label}" from the media library?`)) return;
+    const confirmed = await confirm({
+      title: "Remove from media library?",
+      message: `"${label}" will be permanently removed from the media library. This action cannot be undone.`,
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(id);
     try {
       await deleteCmsMediaAction(id, label, { adminUid: user.uid, adminName: user.displayName ?? user.email ?? "Admin" });
+      toast.success(`"${label}" was removed.`);
     } catch {
       setRowError("Couldn’t remove that media item.");
     } finally {

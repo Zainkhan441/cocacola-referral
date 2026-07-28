@@ -7,6 +7,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import { setCmsPagePublishedAction, deleteCmsPageAction } from "@/features/admin/lib/cms-page-actions";
 import { formatDate } from "@/lib/format";
 import type { CmsPageDoc } from "@/lib/firestore/cms-pages";
@@ -21,6 +23,8 @@ type CmsPageListProps = {
 
 export function CmsPageList({ pages, loading, error, retry, onEdit }: CmsPageListProps) {
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -44,11 +48,17 @@ export function CmsPageList({ pages, loading, error, retry, onEdit }: CmsPageLis
 
   async function handleDelete(page: CmsPageDoc) {
     if (!user || busyId) return;
-    if (!window.confirm(`Delete "${page.title}" and all its sections? This can’t be undone.`)) return;
+    const confirmed = await confirm({
+      title: `Delete "${page.title}"?`,
+      message: "This will also delete all its sections. This action cannot be undone.",
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(page.id);
     try {
       await deleteCmsPageAction(page.id, page.title, reviewer());
+      toast.success(`"${page.title}" was deleted.`);
     } catch {
       setRowError("Couldn’t delete that page. Please try again.");
     } finally {

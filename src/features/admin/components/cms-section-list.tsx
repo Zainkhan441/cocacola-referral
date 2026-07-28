@@ -6,6 +6,8 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { useConfirm } from "@/components/ui/confirm-provider";
+import { useToast } from "@/components/ui/toast-provider";
 import {
   setCmsSectionPublishedAction,
   deleteCmsSectionAction,
@@ -23,6 +25,8 @@ type CmsSectionListProps = {
 
 export function CmsSectionList({ sections, loading, error, retry, onEdit }: CmsSectionListProps) {
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
@@ -46,11 +50,17 @@ export function CmsSectionList({ sections, loading, error, retry, onEdit }: CmsS
 
   async function handleDelete(section: CmsSectionDoc) {
     if (!user || busyId) return;
-    if (!window.confirm("Delete this section? This can’t be undone.")) return;
+    const confirmed = await confirm({
+      title: "Delete this section?",
+      message: "This action cannot be undone.",
+      variant: "delete",
+    });
+    if (!confirmed) return;
     setRowError(null);
     setBusyId(section.id);
     try {
       await deleteCmsSectionAction(section.id, reviewer());
+      toast.success("Section deleted.");
     } catch {
       setRowError("Couldn’t delete that section. Please try again.");
     } finally {
