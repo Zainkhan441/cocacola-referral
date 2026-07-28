@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { siteConfig } from "@/config/site";
 import { AuthProvider } from "@/features/auth/context/auth-provider";
@@ -34,20 +33,26 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
+      {/* Google AdSense site-verification script. Deliberately a plain HTML
+          <script> tag, not next/script: next/script (even with
+          strategy="beforeInteractive") only emits a <link rel="preload">
+          in the actual server-rendered HTML and inserts the real <script>
+          element via client-side JS immediately before hydration — so it
+          is never present in the raw HTML response a non-JS crawler like
+          Mediapartners-Google receives. Root layout is a Server Component,
+          so this literal <script> tag IS part of the static SSR output;
+          React 19 (which this project uses) automatically hoists <script>
+          elements into the document <head> wherever they're rendered in
+          the tree, so this ends up in <head> exactly as Google's
+          verification crawler requires. It's declared exactly once, here,
+          in the root layout that wraps every route — no other file may
+          add it. */}
+      <script
+        async
+        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3568802588793043"
+        crossOrigin="anonymous"
+      />
       <body className="min-h-full flex flex-col">
-        {/* Google AdSense — loaded once, globally, from the root layout so
-            it's never duplicated across routes. afterInteractive is the
-            Next.js-recommended strategy for third-party ad/analytics
-            scripts: it loads early without blocking hydration. next/script
-            de-dupes by src/id automatically, so this single declaration is
-            the only place this script may ever be added. */}
-        <Script
-          id="google-adsense"
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3568802588793043"
-          crossOrigin="anonymous"
-          strategy="afterInteractive"
-        />
         <ToastProvider>
           <ConfirmProvider>
             <AuthProvider>{children}</AuthProvider>
