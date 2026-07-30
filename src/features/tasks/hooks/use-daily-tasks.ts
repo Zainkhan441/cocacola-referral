@@ -42,6 +42,14 @@ type UseDailyTasksResult = {
   // mount-time snapshot, which would otherwise silently miss a midnight
   // rollover while the tab stays open.
   now: number;
+  // The SAME live eligibility check this hook already computes internally
+  // to decide what to assign (task.status === "active", within its date
+  // window, package-eligible — see eligibleActiveTaskIds above) — exposed
+  // read-only so the UI can tell whether an already-assigned task has since
+  // become unavailable (admin disabled it, its window closed, etc.) and
+  // show it as locked. Purely a read of existing state; nothing about
+  // assignment, completion, or claim logic changes by exposing this.
+  eligibleActiveTaskIds: string[];
 };
 
 function isEligible(task: TaskDoc, profile: UserDoc, packageInfo: PackageDoc | null): boolean {
@@ -248,5 +256,6 @@ export function useDailyTasks(
     claimError,
     claim,
     now,
+    eligibleActiveTaskIds,
   };
 }

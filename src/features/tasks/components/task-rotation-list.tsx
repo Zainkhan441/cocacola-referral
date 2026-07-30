@@ -5,6 +5,7 @@ import { CheckCircle2 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 import { VideoTaskPlayer } from "@/features/tasks/components/video-task-player";
 import { BottleIcon, type BottleState } from "@/features/tasks/components/bottle-icon";
 import { setAutoBalancePreference } from "@/features/tasks/lib/actions";
@@ -133,7 +134,17 @@ export function TaskRotationList({
             <Button
               variant="primary"
               size="md"
-              className="self-start"
+              className={cn(
+                "self-start transition-transform duration-200 ease-out hover:enabled:-translate-y-0.5",
+                // Draws attention the instant the button becomes genuinely
+                // clickable (all ads done, not already claiming) — stops
+                // immediately once claimed, since alreadyClaimedToday being
+                // true swaps this whole branch out for the success Alert
+                // above, and never shows at all in Auto Balance mode, since
+                // this branch only renders when autoBalance is off. Purely
+                // a CSS animation; does not touch disabled/enabled logic.
+                daily.allDoneToday && !daily.claiming && "animate-claim-glow",
+              )}
               disabled={!daily.allDoneToday || daily.claiming}
               onClick={() => daily.claim()}
             >
@@ -150,19 +161,29 @@ export function TaskRotationList({
             completion?.completedAt && !isNewPakistanDay(completion.completedAt.toMillis(), now),
           );
           const isActive = activeTaskId === task.id;
-          const state: BottleState = completedToday ? "completed" : isActive ? "active" : "available";
+          // "Locked" reuses the EXACT SAME live eligibility check
+          // useDailyTasks already computes to decide what to assign
+          // (task.status === "active", within its date window, package-
+          // eligible) — never a new/invented rule. A task can only reach
+          // this state if it was eligible when assigned today but has
+          // since become unavailable (e.g. an admin disabled it, or its
+          // date window closed) and hasn't already been completed.
+          const isLocked = !completedToday && !daily.eligibleActiveTaskIds.includes(task.id);
+          const state: BottleState = completedToday ? "completed" : isLocked ? "locked" : isActive ? "active" : "available";
 
           return (
             <button
               key={task.id}
               type="button"
+              disabled={isLocked}
               onClick={() => {
+                if (isLocked) return;
                 setActiveTaskId(task.id);
                 setActiveTaskWasAlreadyDone(completedToday);
               }}
-              className="flex w-full flex-col items-center gap-3 rounded-2xl p-2 transition-colors hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+              className="group flex w-full flex-col items-center gap-3 rounded-2xl p-2 transition-colors duration-300 ease-out hover:enabled:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:cursor-not-allowed"
               aria-pressed={isActive}
-              aria-label={`${task.title}${completedToday ? " — completed for today" : ""}`}
+              aria-label={isLocked ? "Task locked" : `${task.title}${completedToday ? " — completed for today" : ""}`}
             >
               <BottleIcon state={state} className="h-56 w-36 sm:h-64 sm:w-40" />
             </button>

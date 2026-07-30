@@ -44,7 +44,22 @@ export function BottleIcon({ state, className }: BottleIconProps) {
   }, [state]);
 
   return (
-    <div className={cn("relative flex items-center justify-center", className)}>
+    <div
+      className={cn(
+        "relative flex items-center justify-center",
+        // Gentle idle float — active bottles only (the ones a user still
+        // needs to act on); completed/locked/available stay perfectly
+        // still. Lives on this wrapper (not the <Image> below) so it
+        // composes independently of the Image's own hover
+        // scale/drop-shadow transform rather than fighting over a single
+        // `transform` property. Hovering pauses it (rather than fighting
+        // it) via the ancestor button's `group` class, so the hover scale
+        // reads as a clean, deliberate reaction instead of jittering
+        // against ongoing motion.
+        state === "active" && "animate-bottle-float group-hover:[animation-play-state:paused]",
+        className,
+      )}
+    >
       <Image
         src={BOTTLE_IMAGE_SRC}
         alt=""
@@ -52,11 +67,28 @@ export function BottleIcon({ state, className }: BottleIconProps) {
         fill
         sizes="160px"
         className={cn(
-          "object-contain transition-all duration-200",
-          state === "locked" && "opacity-30 grayscale",
-          state === "available" && "text-white/70 opacity-90",
-          state === "active" && "scale-105 text-brand-light drop-shadow-[0_0_14px_rgba(230,57,70,0.55)]",
-          state === "completed" && "text-emerald-400 opacity-95",
+          // Every state change (active/completed/locked/available) eases
+          // through this same 300ms ease-out transition — no sudden jumps.
+          "object-contain transition-all duration-300 ease-out",
+          state === "locked" && "cursor-not-allowed opacity-30 grayscale",
+          state === "available" && "cursor-pointer text-white/70 opacity-90",
+          state === "active" && "cursor-pointer scale-105 text-brand-light drop-shadow-[0_0_14px_rgba(230,57,70,0.55)]",
+          // Fully visible, original colors — only a soft, low-intensity
+          // green glow is added (not a color/opacity change to the bottle
+          // itself), and it persists for as long as state stays
+          // "completed" (i.e. until the Pakistan daily reset clears the
+          // underlying completedToday flag upstream).
+          state === "completed" && "cursor-pointer drop-shadow-[0_0_11px_rgba(16,185,129,0.4)]",
+          // Hover feedback only for genuinely clickable, not-yet-completed
+          // bottles (available/active) — completed bottles deliberately
+          // keep their steady glow without any extra hover scaling, and
+          // locked bottles get no hover treatment at all.
+          (state === "available" || state === "active") &&
+            "group-hover:scale-105 group-hover:drop-shadow-[0_0_16px_rgba(226,35,26,0.5)]",
+          // The existing one-time completion pulse — stronger and brief,
+          // overrides the soft persistent glow above for ~280ms via
+          // tailwind-merge's normal last-wins conflict resolution, then
+          // settles back into it. Unchanged from before.
           justCompleted && "scale-110 drop-shadow-[0_0_22px_rgba(16,185,129,0.85)]",
         )}
       />
@@ -73,10 +105,12 @@ export function BottleIcon({ state, className }: BottleIconProps) {
         // tucked fully outside it) so it reads immediately as "attached to
         // this bottle" rather than a separate floating badge — stays
         // visible until the Pakistan daily reset naturally clears the
-        // underlying completedToday flag upstream.
+        // underlying completedToday flag upstream. Same position/size as
+        // the locked badge below — the two are mutually exclusive (a
+        // bottle is never both at once), so they can never overlap.
         <span
           className={cn(
-            "absolute -right-1.5 -top-1.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-surface-2 bg-emerald-500 text-white shadow-lg transition-transform duration-300",
+            "absolute -right-1.5 -top-1.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white/90 bg-emerald-500 text-white shadow-md transition-transform duration-300 ease-out",
             justCompleted && "scale-110",
           )}
         >
@@ -85,7 +119,9 @@ export function BottleIcon({ state, className }: BottleIconProps) {
       )}
 
       {state === "locked" && (
-        <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-white/50">
+        // Same position/size as the completed tick above — mutually
+        // exclusive states, so the two never render together.
+        <span className="absolute -right-1.5 -top-1.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white/20 bg-surface-3 text-white shadow-md">
           <Lock className="h-3.5 w-3.5" aria-hidden="true" />
         </span>
       )}

@@ -58,10 +58,49 @@ body {
   }
 }
 
+@keyframes claim-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(226, 35, 26, 0);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(226, 35, 26, 0.45);
+  }
+}
+
 .animate-fade-in-up {
   animation: fade-in-up 0.6s ease-out both;
 }
 
 .animate-soft-pulse {
   animation: soft-pulse 3.5s ease-in-out infinite;
+}
+
+.animate-claim-glow {
+  animation: claim-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes bottle-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-bottle-float {
+  animation: bottle-float 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
