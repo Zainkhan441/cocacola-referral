@@ -5,8 +5,8 @@ import { CheckCircle2 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { formatCurrency } from "@/lib/format";
 import { VideoTaskPlayer } from "@/features/tasks/components/video-task-player";
+import { BottleIcon, type BottleState } from "@/features/tasks/components/bottle-icon";
 import { setAutoBalancePreference } from "@/features/tasks/lib/actions";
 import { isNewPakistanDay } from "@/lib/date-utils";
 import type { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
@@ -14,8 +14,6 @@ import type { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
 type TaskRotationListProps = {
   uid: string;
   daily: ReturnType<typeof useDailyTasks>;
-  packageEarning: number;
-  rewardPerAd: number;
   minimumWatchSeconds: number;
   // Persisted profile.autoBalanceAfterAds (defaults to false for accounts
   // predating this field) — the toggle below optimistically flips local
@@ -29,32 +27,50 @@ type TaskRotationListProps = {
 // no money moves per task. Once every required task is done today, the sum
 // of each task's rewardPerAd plus the package's own daily earning is
 // credited together, exactly once, either via the "Claim Reward" button
-// (manual mode) or automatically (Auto Balance mode).
+// (manual mode) or automatically (Auto Balance mode). This view no longer
+// displays a reward breakdown itself — the Top section was trimmed down
+// to Auto Balance + Claim only — but the underlying claim math (still
+// computed from the live package/settings docs inside claimDailyTaskReward)
+// is completely untouched.
 //
-// Ad playback flow: activeTaskId tracks the single task currently open for
-// watching — it's set ONLY by the user clicking that task's own "Watch ad"
-// button, and it's only ever changed again by the user clicking a
-// DIFFERENT task's "Watch ad" button. Completing an ad never resets it, so
-// the just-completed video stays mounted and playable exactly as it was —
-// no auto-close, no auto-pause, no auto-advance to the next task.
+// Bottle layout: one task per bottle, stacked in a single vertical column
+// (mobile-style width on every screen size, never a multi-column grid) —
+// matching the reference layout. The exact count and which tasks they map
+// to come entirely from daily.assignedTasks (itself driven by the user's
+// own package dailyTaskLimit and the admin-managed task pool), never
+// hardcoded. activeTaskId tracks the single task currently open — it's set
+// ONLY by the user clicking a bottle, and only ever changed again by
+// clicking a DIFFERENT bottle. Completing an ad never resets it, so the
+// just-completed video stays mounted and playable exactly as it was — no
+// auto-close, no auto-pause, no auto-advance to the next task. A bottle
+// that's already completed today never remounts the interactive
+// video/claim machinery when clicked again (see ActiveTaskPanel below) —
+// it only shows a confirmation, so it can never attempt (and fail, or
+// worse, somehow duplicate) a second completion.
 export function TaskRotationList({
   uid,
   daily,
-  packageEarning,
-  rewardPerAd,
   minimumWatchSeconds,
   autoBalanceAfterAds,
 }: TaskRotationListProps) {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  // Captures whether the clicked bottle was ALREADY completed for today at
+  // the moment it was opened — frozen for as long as it stays the active
+  // bottle, deliberately NOT recomputed live from daily.completions. This
+  // is what keeps VideoTaskPlayer mounted (still playing, still visible)
+  // for the whole time a task stays open, even the instant ITS OWN
+  // completion write lands — the parent's realtime listener updating
+  // daily.completions must never itself swap the video away for a
+  // still-open bottle; only opening a DIFFERENT (or the same, later)
+  // already-done bottle should ever show the plain confirmation instead.
+  const [activeTaskWasAlreadyDone, setActiveTaskWasAlreadyDone] = useState(false);
   const [autoBalance, setAutoBalanceState] = useState(autoBalanceAfterAds);
   const [toggleError, setToggleError] = useState<string | null>(null);
   // Shared with useDailyTasks — a live Pakistan-time clock, not a stale
   // mount-time snapshot, so a completion from before a midnight rollover
   // (tab left open) correctly stops showing as "completed today" and the
-  // Watch button reappears without a manual reload.
+  // bottle reappears as available without a manual reload.
   const now = daily.now;
-
-  const totalReward = daily.requiredCount * rewardPerAd + packageEarning;
 
   async function handleAutoBalanceToggle(enabled: boolean) {
     setToggleError(null);
@@ -75,30 +91,10 @@ export function TaskRotationList({
     );
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-white">Today’s progress</p>
-          <p className="text-sm text-white/60">
-            {daily.completedTodayCount} / {daily.requiredCount} complete
-          </p>
-        </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full bg-brand transition-all"
-            style={{
-              width: `${daily.requiredCount > 0 ? Math.min(100, (daily.completedTodayCount / daily.requiredCount) * 100) : 0}%`,
-            }}
-          />
-        </div>
-        <p className="text-xs text-white/50">
-          Complete all {daily.requiredCount} ad{daily.requiredCount === 1 ? "" : "s"} today to unlock{" "}
-          {formatCurrency(totalReward)} — {formatCurrency(rewardPerAd)} per ad plus{" "}
-          {formatCurrency(packageEarning)} in Coca-Cola Earning.
-        </p>
-      </div>
+  const activeTask = daily.assignedTasks.find((task) => task.id === activeTaskId) ?? null;
 
+  return (
+    <div className="mx-auto flex w-full max-w-sm flex-col gap-6">
       <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -147,52 +143,94 @@ export function TaskRotationList({
         )}
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col items-center gap-8 py-2">
         {daily.assignedTasks.map((task) => {
           const completion = daily.completions[task.id];
           const completedToday = Boolean(
             completion?.completedAt && !isNewPakistanDay(completion.completedAt.toMillis(), now),
           );
           const isActive = activeTaskId === task.id;
+          const state: BottleState = completedToday ? "completed" : isActive ? "active" : "available";
 
           return (
-            <div key={task.id} className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex flex-col gap-1">
-                  <p className="font-semibold text-white">{task.title}</p>
-                  <p className="text-xs text-white/50">{task.description}</p>
-                </div>
-                {completedToday && <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-400" aria-hidden="true" />}
-              </div>
-
-              {(!completedToday || isActive) && (
-                <p className="whitespace-pre-wrap text-sm text-white/60">{task.instructions}</p>
-              )}
-
-              {isActive ? (
-                // Stays mounted (video keeps playing, uninterrupted) even
-                // after this ad's own completion is recorded — completing
-                // one ad must never auto-close/pause/stop its video or
-                // auto-advance to the next one. The user leaves this ad
-                // whenever THEY choose, by clicking a different task's own
-                // "Watch ad" button below.
-                <VideoTaskPlayer
-                  uid={uid}
-                  taskId={task.id}
-                  videoUrl={task.videoUrl}
-                  minimumWatchSeconds={minimumWatchSeconds}
-                />
-              ) : completedToday ? (
-                <Alert variant="success">Completed for today.</Alert>
-              ) : (
-                <Button variant="outline" size="md" className="self-start" onClick={() => setActiveTaskId(task.id)}>
-                  Watch ad
-                </Button>
-              )}
-            </div>
+            <button
+              key={task.id}
+              type="button"
+              onClick={() => {
+                setActiveTaskId(task.id);
+                setActiveTaskWasAlreadyDone(completedToday);
+              }}
+              className="flex w-full flex-col items-center gap-3 rounded-2xl p-2 transition-colors hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"
+              aria-pressed={isActive}
+              aria-label={`${task.title}${completedToday ? " — completed for today" : ""}`}
+            >
+              <BottleIcon state={state} className="h-56 w-36 sm:h-64 sm:w-40" />
+            </button>
           );
         })}
       </div>
+
+      {activeTask ? (
+        <ActiveTaskPanel
+          uid={uid}
+          task={activeTask}
+          minimumWatchSeconds={minimumWatchSeconds}
+          alreadyDoneBeforeOpening={activeTaskWasAlreadyDone}
+        />
+      ) : (
+        <div className="rounded-2xl border border-dashed border-white/10 py-8 text-center">
+          <p className="text-sm text-white/50">Tap a bottle above to start watching.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ActiveTaskPanelProps = {
+  uid: string;
+  task: ReturnType<typeof useDailyTasks>["assignedTasks"][number];
+  minimumWatchSeconds: number;
+  // Whether this bottle was ALREADY completed today at the moment it was
+  // clicked open — frozen at click-time by the parent, never recomputed
+  // live while this stays the active bottle (see task-rotation-list.tsx's
+  // own comment for why: recomputing live would swap the video away the
+  // instant its own completion write lands, undoing "video stays visible
+  // after completion").
+  alreadyDoneBeforeOpening: boolean;
+};
+
+// Deliberately never mounts VideoTaskPlayer for a task that was ALREADY
+// completed today before this bottle was opened — reopening a finished
+// bottle only shows a confirmation, never the interactive watch/completion
+// flow, so a completed bottle can structurally never attempt (and
+// therefore never duplicate) a second completion. A task that's genuinely
+// in progress, or completes DURING this viewing, keeps VideoTaskPlayer
+// mounted the whole time — it already handles staying visible/playing
+// after its own completion internally, with no auto-advance.
+function ActiveTaskPanel({ uid, task, minimumWatchSeconds, alreadyDoneBeforeOpening }: ActiveTaskPanelProps) {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <p className="font-semibold text-white">{task.title}</p>
+          <p className="text-xs text-white/50">{task.description}</p>
+        </div>
+        {alreadyDoneBeforeOpening && <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-400" aria-hidden="true" />}
+      </div>
+
+      {alreadyDoneBeforeOpening ? (
+        <Alert variant="success">Completed for today.</Alert>
+      ) : (
+        <>
+          <p className="whitespace-pre-wrap text-sm text-white/60">{task.instructions}</p>
+          <VideoTaskPlayer
+            uid={uid}
+            taskId={task.id}
+            videoUrl={task.videoUrl}
+            minimumWatchSeconds={minimumWatchSeconds}
+          />
+        </>
+      )}
     </div>
   );
 }

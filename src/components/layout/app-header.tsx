@@ -23,7 +23,6 @@ import { MoreMenu } from "@/components/layout/more-menu";
 // destination. A different package requires a new account.
 const PRIMARY_NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/work-room", label: "Work Room" },
   { href: "/wallet", label: "Wallet" },
   { href: "/team", label: "Staff Earning" },
   { href: "/tasks", label: "Tasks" },

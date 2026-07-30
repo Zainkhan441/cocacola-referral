@@ -34,7 +34,8 @@ import { DashboardQuickLinks } from "@/features/dashboard/components/dashboard-q
 // The home overview: balances, package status, referral snapshot, one-tap
 // shortcuts into the daily-use pages, and a recent-activity feed. Milestone
 // 20 moved the full Deposit/Withdraw forms + histories to /wallet and the
-// daily earning ritual + its history to /work-room, so this page stays a
+// daily earning ritual + its history to /tasks (formerly a separate
+// /work-room page — retired and merged into Tasks), so this page stays a
 // quick "how am I doing" snapshot instead of a single very long page — no
 // business logic changed, every component below is reused exactly as built.
 export default function DashboardPage() {

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Briefcase, Users, Wallet } from "lucide-react";
+import { ArrowRight, ClipboardList, Users, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 type QuickLink = {
@@ -11,10 +11,10 @@ type QuickLink = {
 
 const QUICK_LINKS: QuickLink[] = [
   {
-    href: "/work-room",
-    label: "Work Room",
+    href: "/tasks",
+    label: "Tasks",
     description: "Today's earning & tasks",
-    icon: Briefcase,
+    icon: ClipboardList,
   },
   {
     href: "/wallet",
@@ -31,9 +31,11 @@ const QUICK_LINKS: QuickLink[] = [
 ];
 
 // The dashboard's "where do I go next" row — surfaces the three daily-use
-// pages (Work Room, Wallet, Team) as one-tap shortcuts from Home, since the
+// pages (Tasks, Wallet, Team) as one-tap shortcuts from Home, since the
 // dashboard itself no longer embeds their full content (Milestone 20 UX
-// cleanup). Purely navigational; no data fetching, no business logic.
+// cleanup). Work Room was retired and merged into Tasks — this card was
+// repointed to /tasks rather than removed. Purely navigational; no data
+// fetching, no business logic.
 export function DashboardQuickLinks() {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

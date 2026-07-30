@@ -16,7 +16,7 @@ import { useAvailableTasks } from "@/features/tasks/hooks/use-available-tasks";
 import { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
 import { useTaskRewardSettings } from "@/features/admin/hooks/use-task-reward-settings";
 import { TaskRotationList } from "@/features/tasks/components/task-rotation-list";
-import { DEFAULT_TASK_REWARD_PER_AD, DEFAULT_MINIMUM_WATCH_SECONDS } from "@/lib/firestore/settings";
+import { DEFAULT_MINIMUM_WATCH_SECONDS } from "@/lib/firestore/settings";
 
 export default function TasksPage() {
   const { user, loading: authLoading, configured } = useAuth();
@@ -32,9 +32,7 @@ export default function TasksPage() {
   const { gateLoading } = useAppAccessGate({ configured, authLoading, user, profile, profileLoading });
 
   const daily = useDailyTasks(user?.uid, profile, packageInfo, tasks, tasksLoading);
-  const rewardPerAd = rewardSettings?.rewardPerAd ?? DEFAULT_TASK_REWARD_PER_AD;
   const minimumWatchSeconds = rewardSettings?.minimumWatchSeconds ?? DEFAULT_MINIMUM_WATCH_SECONDS;
-  const packageEarning = profile?.packageDailyEarning ?? packageInfo?.dailyEarning ?? 0;
 
   const hasQualifyingPackage = Boolean(profile?.package);
 
@@ -124,8 +122,6 @@ export default function TasksPage() {
               <TaskRotationList
                 uid={user!.uid}
                 daily={daily}
-                packageEarning={packageEarning}
-                rewardPerAd={rewardPerAd}
                 minimumWatchSeconds={minimumWatchSeconds}
                 autoBalanceAfterAds={profile?.autoBalanceAfterAds ?? false}
               />
