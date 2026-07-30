@@ -30,6 +30,13 @@ type TaskRotationListProps = {
 // of each task's rewardPerAd plus the package's own daily earning is
 // credited together, exactly once, either via the "Claim Reward" button
 // (manual mode) or automatically (Auto Balance mode).
+//
+// Ad playback flow: activeTaskId tracks the single task currently open for
+// watching — it's set ONLY by the user clicking that task's own "Watch ad"
+// button, and it's only ever changed again by the user clicking a
+// DIFFERENT task's "Watch ad" button. Completing an ad never resets it, so
+// the just-completed video stays mounted and playable exactly as it was —
+// no auto-close, no auto-pause, no auto-advance to the next task.
 export function TaskRotationList({
   uid,
   daily,
@@ -158,20 +165,25 @@ export function TaskRotationList({
                 {completedToday && <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-400" aria-hidden="true" />}
               </div>
 
-              {!completedToday && (
+              {(!completedToday || isActive) && (
                 <p className="whitespace-pre-wrap text-sm text-white/60">{task.instructions}</p>
               )}
 
-              {completedToday ? (
-                <Alert variant="success">Completed for today.</Alert>
-              ) : isActive ? (
+              {isActive ? (
+                // Stays mounted (video keeps playing, uninterrupted) even
+                // after this ad's own completion is recorded — completing
+                // one ad must never auto-close/pause/stop its video or
+                // auto-advance to the next one. The user leaves this ad
+                // whenever THEY choose, by clicking a different task's own
+                // "Watch ad" button below.
                 <VideoTaskPlayer
                   uid={uid}
                   taskId={task.id}
                   videoUrl={task.videoUrl}
                   minimumWatchSeconds={minimumWatchSeconds}
-                  onCompleted={() => setActiveTaskId(null)}
                 />
+              ) : completedToday ? (
+                <Alert variant="success">Completed for today.</Alert>
               ) : (
                 <Button variant="outline" size="md" className="self-start" onClick={() => setActiveTaskId(task.id)}>
                   Watch ad
