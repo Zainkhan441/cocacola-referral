@@ -9,7 +9,7 @@ import { withdrawalsCollection } from "@/lib/firestore/withdrawals";
 import { referralRewardsCollection } from "@/lib/firestore/referral-rewards";
 import { transactionsByTypeQuery, dailyRewardTransactionsSinceQuery } from "@/lib/firestore/transactions";
 import { useResetOnKeyChange } from "@/features/user/hooks/use-reset-on-key-change";
-import { startOfUtcDay } from "@/lib/date-utils";
+import { startOfPakistanDay } from "@/lib/date-utils";
 
 export type AdminStats = {
   totalUsers: number;
@@ -30,8 +30,9 @@ export type AdminStats = {
   // Sum across every user's referralRewards — real Rs 0 until the referral
   // crediting engine (a later milestone) exists.
   totalReferralRewards: number;
-  // Sum of daily_reward transactions created since the start of today (UTC),
-  // matching the same calendar-day boundary the earning engine itself uses.
+  // Sum of daily_reward transactions created since the start of today
+  // (Asia/Karachi), matching the same Pakistan calendar-day boundary the
+  // earning engine itself uses.
   todayEarningsPaid: number;
   // Total money currently sitting in each wallet, platform-wide — a live
   // snapshot of platform liability, not a lifetime/historical figure.
@@ -69,7 +70,7 @@ export function useAdminStats(): UseAdminStatsResult {
     let cancelled = false;
 
     async function load() {
-      const todayStartMs = startOfUtcDay(Date.now());
+      const todayStartMs = startOfPakistanDay(Date.now());
 
       const [
         totalUsersSnap,

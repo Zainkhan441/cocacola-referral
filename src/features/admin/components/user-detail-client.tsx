@@ -9,6 +9,7 @@ import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { SelectField } from "@/components/ui/select-field";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { calculateLevel, levelLabel } from "@/lib/level";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useAdminUserProfile } from "@/features/admin/hooks/use-admin-user-profile";
 import { useAdminUserWalletHistory } from "@/features/admin/hooks/use-admin-user-wallet-history";
@@ -122,7 +123,7 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           <div>
-            <p className="text-xs text-white/50">Deposit Wallet</p>
+            <p className="text-xs text-white/50">Legacy Wallet Balance</p>
             <p className="text-lg font-bold text-white">{formatCurrency(profile.walletBalance)}</p>
           </div>
           <div>
@@ -193,6 +194,21 @@ export function UserDetailClient({ uid }: UserDetailClientProps) {
               <p className="text-lg font-bold text-white">
                 {formatCurrency(insights?.totalCommissionGenerated ?? 0)}
               </p>
+            </div>
+            <div>
+              <p className="text-xs text-white/50">Current Level</p>
+              <p className="text-lg font-bold text-white">
+                {(() => {
+                  const level = calculateLevel(insights?.directActive ?? 0);
+                  return level.level != null ? levelLabel(level.level) : "No Level";
+                })()}
+              </p>
+              {insights && calculateLevel(insights.directActive).nextLevel != null && (
+                <p className="text-xs text-white/40">
+                  {calculateLevel(insights.directActive).referralsNeeded} more for{" "}
+                  {levelLabel(calculateLevel(insights.directActive).nextLevel!)}
+                </p>
+              )}
             </div>
           </div>
         )}

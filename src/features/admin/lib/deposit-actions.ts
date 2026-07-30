@@ -50,16 +50,17 @@ type ChainStep = {
 // ancestor's teamMembers "downline" record in sync for display — that sync
 // is unconditional and carries no money.
 //
-// FINAL BUSINESS RULE: Staff Earning is not a separate wallet. The
-// commission is credited directly into the direct referrer's Current
-// Balance (real, withdrawable money, subject to the exact same Rs 500
-// minimum/no-Level-requirement withdrawal rules as any other Current
-// Balance credit) — never into users/{uid}.staffEarning, which this
-// function no longer writes to at all. "Staff Earning" as a UI concept is
-// now purely a reporting view computed from the referralRewards collection
-// and each teamMembers record's own commissionEarned running total, so
-// there is exactly one place money is ever added, but it can be displayed
-// from two different queries.
+// FINAL BUSINESS RULE (Phase 2): Staff Earning is not a separate wallet.
+// The commission is credited directly into the direct referrer's
+// Coca-Cola Earning (subject to the exact same withdrawal rules as any
+// other Coca-Cola Earning credit) — never into Current Balance, and never
+// into users/{uid}.staffEarning, which this function no longer writes to
+// at all. "Staff Earning" as a UI concept is purely a reporting view
+// computed from the referralRewards collection and each teamMembers
+// record's own commissionEarned running total, so there is exactly one
+// place this money is ever added, but it can be displayed from two
+// different queries. (Phase 1 audited this as still crediting Current
+// Balance — this is the Phase 2 change moving it to Coca-Cola Earning.)
 //
 // Idempotency: the referralRewards/{depositId} document — id is literally
 // the depositId — can only ever be created once (firestore.rules denies any
@@ -79,6 +80,7 @@ export async function approveDeposit(
   const txnRef = newTransactionRef(db);
   const purchaseHistoryRef = newPackagePurchaseRef(db);
   const notificationRef = newSystemNotificationRef(db);
+  const referralNotificationRef = newSystemNotificationRef(db);
 
   let capturedAmount = 0;
   let capturedPackageName: string | null = null;
@@ -169,8 +171,8 @@ export async function approveDeposit(
         pendingPackagePurchaseId: null,
         // "Always fresh" activation resets the daily-earning gate too — the
         // first automatic Coca-Cola Earning credit becomes eligible at the
-        // start of the next UTC calendar day after THIS activation (see
-        // firestore.rules canClaimDaily/isNewUtcDay), never carried over
+        // start of the next Pakistan calendar day after THIS activation (see
+        // firestore.rules canClaimDaily/isNewPakistanDay), never carried over
         // from a previous package.
         lastDailyClaimAt: activatedAt,
         updatedAt: serverTimestamp(),
@@ -215,8 +217,12 @@ export async function approveDeposit(
         ? `Package purchase: ${packageName}`
         : "Deposit via Easypaisa",
       // A package-purchase deposit activates a package rather than crediting
-      // any single wallet balance — walletBalance is the Deposit Wallet a
-      // plain top-up lands in.
+      // any single wallet balance — walletBalance is the old, retired
+      // standalone top-up wallet. This branch is unreachable from any
+      // current UI (every deposit request now always carries a packageId —
+      // see package-purchase-form.tsx, the only caller of
+      // submitDepositRequest), kept only so a genuinely pre-existing
+      // plain-top-up deposit can still be resolved by an admin, never lost.
       wallet: deposit.packageId ? null : "walletBalance",
       referenceId: depositId,
       createdAt: serverTimestamp(),
@@ -230,7 +236,7 @@ export async function approveDeposit(
         title: deposit.packageId ? "Package activated" : "Deposit approved",
         body: deposit.packageId
           ? `Your ${formatCurrency(deposit.amount)} payment was approved and "${packageName}" is now active. Daily Coca-Cola earnings begin tomorrow.`
-          : `Your ${formatCurrency(deposit.amount)} deposit was approved and added to your Deposit Wallet.`,
+          : `Your ${formatCurrency(deposit.amount)} deposit was approved and added to your legacy wallet balance.`,
       }),
     );
 
@@ -290,23 +296,26 @@ export async function approveDeposit(
       }
     }
 
-    // Referral commission: credited into the direct referrer's Current
-    // Balance — the ONLY wallet this money ever lands in (see this
+    // Referral commission: credited into the direct referrer's Coca-Cola
+    // Earning — the ONLY wallet this money ever lands in (see this
     // function's top-level doc comment for the full "Staff Earning is not
     // a separate wallet" rationale). referralRewards is the reporting
-    // record of where it came from, not a second pool of money.
+    // record of where it came from, not a second pool of money. The
+    // referralRewards/{depositId} doc's deterministic id (see
+    // existingReferralRewardSnap above) IS the idempotency key — a retried
+    // or re-triggered approval can never credit this twice.
     if (commissionPayable && directReferrer && deposit.packageId && packageName) {
       const ancestorData = directReferrer.ancestorData;
-      const newCurrentBalance = ancestorData.currentBalance + referralCommission;
+      const newCocaColaEarning = ancestorData.cocaColaEarning + referralCommission;
       const newTotalEarnings = ancestorData.totalEarnings + referralCommission;
 
       transaction.update(userDocRef(db, directReferrer.ancestorUid), {
-        currentBalance: newCurrentBalance,
+        cocaColaEarning: newCocaColaEarning,
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });
       transaction.update(walletDocRef(db, directReferrer.ancestorUid), {
-        currentBalance: newCurrentBalance,
+        cocaColaEarning: newCocaColaEarning,
         totalEarnings: newTotalEarnings,
         updatedAt: serverTimestamp(),
       });
@@ -331,10 +340,19 @@ export async function approveDeposit(
         amount: referralCommission,
         status: "completed",
         description: `Referral commission from ${deposit.userName}'s package purchase`,
-        wallet: "currentBalance",
+        wallet: "cocaColaEarning",
         referenceId: referralRewardRef.id,
         createdAt: serverTimestamp(),
       });
+      transaction.set(
+        referralNotificationRef,
+        buildSystemNotificationData({
+          uid: directReferrer.ancestorUid,
+          kind: "referral",
+          title: "Referral commission credited",
+          body: `${deposit.userName}'s package purchase was approved — ${formatCurrency(referralCommission)} referral commission was added to your Coca-Cola Earning.`,
+        }),
+      );
 
       capturedReferralCommission = referralCommission;
       capturedReferralPaid = true;

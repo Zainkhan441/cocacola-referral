@@ -34,7 +34,7 @@ export function BonusTierCard({
   submitting,
   onClaim,
 }: BonusTierCardProps) {
-  const directReferrals = summary?.levelCounts[1] ?? 0;
+  const directReferrals = summary?.directActive ?? 0;
   const totalTeam = summary?.total ?? 0;
   const activeTeam = summary?.active ?? 0;
 

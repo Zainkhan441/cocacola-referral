@@ -8,6 +8,10 @@ import {
   type WithdrawalSourceWallet,
 } from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
+import { getWithdrawalRules } from "@/lib/firestore/settings";
+import { getDirectActiveReferralCount } from "@/lib/firestore/team-members";
+import { DEFAULT_COCA_COLA_REQUIRED_LEVEL } from "@/features/wallet/lib/validation";
+import { levelLabel, thresholdForLevel } from "@/lib/level";
 
 function requireDb() {
   if (!db) {
@@ -77,6 +81,31 @@ type SubmitWithdrawalInput = {
 // independently, so one pending request per wallet can coexist.
 export async function submitWithdrawalRequest(input: SubmitWithdrawalInput) {
   const firestore = requireDb();
+
+  // Defense-in-depth, action-layer eligibility check — the UI already
+  // hides/blocks this form when ineligible, and the authoritative check
+  // happens again at admin approval (Firestore rules can't run the
+  // aggregate referral-count query needed here), but a request should never
+  // even be CREATED for a requester who plainly doesn't qualify yet.
+  if (input.sourceWallet === "coca_cola_earning") {
+    const [withdrawalRules, directActiveReferrals] = await Promise.all([
+      getWithdrawalRules(firestore),
+      getDirectActiveReferralCount(firestore, input.uid),
+    ]);
+    const requiredLevel = withdrawalRules
+      ? withdrawalRules.cocaColaRequiredLevel
+      : DEFAULT_COCA_COLA_REQUIRED_LEVEL;
+    if (requiredLevel == null) {
+      throw new Error("Coca-Cola Earning withdrawals are currently disabled.");
+    }
+    const requiredThreshold = thresholdForLevel(requiredLevel);
+    if (directActiveReferrals < requiredThreshold) {
+      throw new Error(
+        `Coca-Cola Earning withdrawals require ${levelLabel(requiredLevel)}. You currently have ${directActiveReferrals} active direct referral${directActiveReferrals === 1 ? "" : "s"} and need ${requiredThreshold - directActiveReferrals} more to reach ${levelLabel(requiredLevel)}.`,
+      );
+    }
+  }
+
   const withdrawalRef = newWithdrawalRef(firestore);
   const pendingField = pendingWithdrawalFieldFor(input.sourceWallet);
 

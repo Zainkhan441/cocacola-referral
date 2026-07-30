@@ -19,6 +19,7 @@ import {
 } from "@/features/wallet/lib/validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 import { formatCurrency } from "@/lib/format";
+import { levelLabel } from "@/lib/level";
 import type { UserDoc } from "@/lib/firestore/users";
 import type { WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
 
@@ -30,10 +31,13 @@ type WithdrawalFormProps = {
 // withdraw flow — Staff Earning has no withdrawal path at all (admin can
 // manually transfer it if needed). Current Balance is gated by an
 // admin-editable minimum amount; Coca-Cola Earning is gated by the
-// requester's own direct-active-referral Level reaching an admin-editable
-// required Level (default 10) — that Level check is advisory-only here
-// (Firestore rules can't run the aggregate query it needs), authoritatively
-// re-verified server-side in approveWithdrawal before any money moves.
+// requester's own real CocaCola Level (src/lib/level.ts) reaching an
+// admin-selected required Level (1-12, or disabled) — the required Level is
+// resolved to its real active-direct-referral threshold via
+// thresholdForLevel(), never treated as a referral count itself. This check
+// is advisory-only here (Firestore rules can't run the aggregate query it
+// needs), authoritatively re-verified server-side in approveWithdrawal
+// before any money moves.
 export function WithdrawalForm({ profile }: WithdrawalFormProps) {
   const { user } = useAuth();
   const {
@@ -45,6 +49,7 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
   const {
     currentBalanceMinWithdraw,
     cocaColaRequiredLevel,
+    cocaColaRequiredThreshold,
     directActiveReferrals,
     loading: eligibilityLoading,
     error: eligibilityError,
@@ -123,13 +128,15 @@ export function WithdrawalForm({ profile }: WithdrawalFormProps) {
         availableBalance={profile.cocaColaEarning}
         minAmount={COCA_COLA_MIN_WITHDRAW}
         blockedReason={
-          directActiveReferrals < cocaColaRequiredLevel
-            ? `You need Level ${cocaColaRequiredLevel} (${cocaColaRequiredLevel} direct active referrals) to withdraw Coca-Cola Earning. You currently have ${directActiveReferrals}.`
-            : null
+          cocaColaRequiredLevel == null || cocaColaRequiredThreshold == null
+            ? "Coca-Cola Earning withdrawals are currently disabled."
+            : directActiveReferrals < cocaColaRequiredThreshold
+              ? `Coca-Cola Earning withdrawals require ${levelLabel(cocaColaRequiredLevel)}. You currently have ${directActiveReferrals} active direct referral${directActiveReferrals === 1 ? "" : "s"} and need ${cocaColaRequiredThreshold - directActiveReferrals} more to reach ${levelLabel(cocaColaRequiredLevel)}.`
+              : null
         }
         progress={
-          directActiveReferrals < cocaColaRequiredLevel
-            ? { have: directActiveReferrals, need: cocaColaRequiredLevel, unit: "count" }
+          cocaColaRequiredLevel != null && cocaColaRequiredThreshold != null && directActiveReferrals < cocaColaRequiredThreshold
+            ? { have: directActiveReferrals, need: cocaColaRequiredThreshold, unit: "count" }
             : null
         }
       />

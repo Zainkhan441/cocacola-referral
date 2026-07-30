@@ -14,6 +14,12 @@ type UseWithdrawalHistoryResult = {
   retry: () => void;
 };
 
+// Live subscription to this account's own withdrawal requests, filtered to
+// pending + approved only — rejected requests are deliberately excluded
+// here (Rejected Withdraw remains visible only as a Wallet summary tile,
+// per product decision). Reads recentWithdrawalsQuery (uid + createdAt,
+// unfiltered by status) rather than a status-filtered query so approvals/
+// rejections update live in place without a second listener.
 export function useWithdrawalHistory(): UseWithdrawalHistoryResult {
   const { user, configured } = useAuth();
   const uid = user?.uid;
@@ -36,7 +42,7 @@ export function useWithdrawalHistory(): UseWithdrawalHistoryResult {
     const unsubscribe = onSnapshot(
       recentWithdrawalsQuery(db, uid),
       (snapshot) => {
-        setWithdrawals(snapshot.docs.map((doc) => doc.data()));
+        setWithdrawals(snapshot.docs.map((doc) => doc.data()).filter((w) => w.status !== "rejected"));
         setError(null);
         setLoading(false);
       },

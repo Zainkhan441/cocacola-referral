@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { db } from "@/lib/firebase/client";
 import { referralRewardDocRef } from "@/lib/firestore/referral-rewards";
+import { packageDocRef, type PackageDoc } from "@/lib/firestore/packages";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { approveDeposit, rejectDeposit } from "@/features/admin/lib/deposit-actions";
 import { DepositScreenshotControls } from "@/features/admin/components/deposit-screenshot-controls";
@@ -36,6 +37,12 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
   // payment is already prevented server-side in approveDeposit regardless
   // of what this displays.
   const [commissionPaid, setCommissionPaid] = useState<boolean | null>(null);
+  // The package this request is for — resolved for display only (name +
+  // its CURRENT stored price, shown alongside the submitted amount so an
+  // admin can visually confirm they match; the actual enforcement that they
+  // exactly match already happens independently in firestore.rules at
+  // submission time, this is never a gate).
+  const [pkg, setPkg] = useState<PackageDoc | null>(null);
 
   useEffect(() => {
     if (!db || deposit.status !== "approved" || !deposit.packageId) return;
@@ -51,6 +58,21 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
       cancelled = true;
     };
   }, [deposit.status, deposit.packageId, deposit.id]);
+
+  useEffect(() => {
+    if (!db || !deposit.packageId) return;
+    let cancelled = false;
+    getDoc(packageDocRef(db, deposit.packageId))
+      .then((snap) => {
+        if (!cancelled) setPkg(snap.exists() ? snap.data() : null);
+      })
+      .catch(() => {
+        if (!cancelled) setPkg(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deposit.packageId]);
 
   function reviewer() {
     if (!user) throw new Error("Not signed in.");
@@ -90,6 +112,7 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <p className="font-semibold text-white">{deposit.userName}</p>
+          <p className="text-xs text-white/40">UID: {deposit.uid}</p>
           <p className="text-xs text-white/50">
             {formatDate(deposit.createdAt)} · Ref: {deposit.referenceId}
           </p>
@@ -97,7 +120,9 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
             Sender Easypaisa number: <span className="tabular-nums text-white">{deposit.senderAccountNumber}</span>
           </p>
           {deposit.packageId && (
-            <p className="text-xs font-medium text-brand-light">Package purchase request</p>
+            <p className="text-xs font-medium text-brand-light">
+              Package purchase request{pkg ? `: ${pkg.name} (price ${formatCurrency(pkg.price)})` : ""}
+            </p>
           )}
           {deposit.status === "approved" && deposit.packageId && commissionPaid != null && (
             <p className="text-xs text-white/40">
@@ -107,6 +132,7 @@ export function DepositReviewRow({ deposit, onReviewed }: DepositReviewRowProps)
         </div>
         <div className="flex flex-col items-end gap-1">
           <p className="text-lg font-bold text-white">{formatCurrency(deposit.amount)}</p>
+          <p className="text-xs text-white/40">Submitted amount</p>
           <span
             className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_STYLES[deposit.status]}`}
           >

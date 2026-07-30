@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Gift } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { formatCurrency } from "@/lib/format";
 import { VideoTaskPlayer } from "@/features/tasks/components/video-task-player";
-import { isNewUtcDay } from "@/lib/date-utils";
+import { setAutoBalancePreference } from "@/features/tasks/lib/actions";
+import { isNewPakistanDay } from "@/lib/date-utils";
 import type { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
 
 type TaskRotationListProps = {
@@ -15,11 +16,49 @@ type TaskRotationListProps = {
   daily: ReturnType<typeof useDailyTasks>;
   packageEarning: number;
   rewardPerAd: number;
+  minimumWatchSeconds: number;
+  // Persisted profile.autoBalanceAfterAds (defaults to false for accounts
+  // predating this field) — the toggle below optimistically flips local
+  // state, then persists via setAutoBalancePreference; use-daily-tasks.ts's
+  // own effect reacts to the resulting profile change and auto-claims if
+  // already eligible.
+  autoBalanceAfterAds: boolean;
 };
 
-export function TaskRotationList({ uid, daily, packageEarning, rewardPerAd }: TaskRotationListProps) {
+// Bundled claim model (Phase 4): watching an ad only records completion —
+// no money moves per task. Once every required task is done today, the sum
+// of each task's rewardPerAd plus the package's own daily earning is
+// credited together, exactly once, either via the "Claim Reward" button
+// (manual mode) or automatically (Auto Balance mode).
+export function TaskRotationList({
+  uid,
+  daily,
+  packageEarning,
+  rewardPerAd,
+  minimumWatchSeconds,
+  autoBalanceAfterAds,
+}: TaskRotationListProps) {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [now] = useState(() => Date.now());
+  const [autoBalance, setAutoBalanceState] = useState(autoBalanceAfterAds);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  // Shared with useDailyTasks — a live Pakistan-time clock, not a stale
+  // mount-time snapshot, so a completion from before a midnight rollover
+  // (tab left open) correctly stops showing as "completed today" and the
+  // Watch button reappears without a manual reload.
+  const now = daily.now;
+
+  const totalReward = daily.requiredCount * rewardPerAd + packageEarning;
+
+  async function handleAutoBalanceToggle(enabled: boolean) {
+    setToggleError(null);
+    setAutoBalanceState(enabled);
+    try {
+      await setAutoBalancePreference(uid, enabled);
+    } catch (err) {
+      setAutoBalanceState(!enabled);
+      setToggleError(err instanceof Error ? err.message : "Couldn’t update this preference.");
+    }
+  }
 
   if (daily.assignedTasks.length === 0) {
     return (
@@ -28,8 +67,6 @@ export function TaskRotationList({ uid, daily, packageEarning, rewardPerAd }: Ta
       </div>
     );
   }
-
-  const totalTaskReward = daily.requiredCount * rewardPerAd;
 
   return (
     <div className="flex flex-col gap-4">
@@ -49,31 +86,65 @@ export function TaskRotationList({ uid, daily, packageEarning, rewardPerAd }: Ta
           />
         </div>
         <p className="text-xs text-white/50">
-          Complete all {daily.requiredCount} tasks to earn {formatCurrency(totalTaskReward)} +{" "}
-          {formatCurrency(packageEarning)} — both credited together, once.
+          Complete all {daily.requiredCount} ad{daily.requiredCount === 1 ? "" : "s"} today to unlock{" "}
+          {formatCurrency(totalReward)} — {formatCurrency(rewardPerAd)} per ad plus{" "}
+          {formatCurrency(packageEarning)} in Coca-Cola Earning.
         </p>
       </div>
 
-      {daily.alreadyClaimedToday ? (
-        <Alert variant="success">Today’s reward has already been claimed. Come back tomorrow.</Alert>
-      ) : daily.allDoneToday ? (
-        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 sm:p-5">
-          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
-            <Gift className="h-4 w-4" aria-hidden="true" />
-            All tasks complete — claim your reward!
-          </p>
-          {daily.claimError && <Alert variant="error">{daily.claimError}</Alert>}
-          <Button size="md" disabled={daily.claiming} onClick={daily.claim} className="self-start">
-            {daily.claiming ? <Spinner /> : `Claim ${formatCurrency(totalTaskReward + packageEarning)}`}
-          </Button>
+      <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-white/80">Auto balance after ad watching</p>
+            <p className="text-xs text-white/40">
+              Automatically claim today’s reward the instant every ad is complete.
+            </p>
+          </div>
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input
+              type="checkbox"
+              checked={autoBalance}
+              onChange={(event) => handleAutoBalanceToggle(event.target.checked)}
+              className="peer sr-only"
+            />
+            <div className="h-6 w-11 rounded-full bg-white/10 transition-colors peer-checked:bg-brand" />
+            <div className="absolute left-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
+          </label>
         </div>
-      ) : null}
+        {toggleError && <Alert variant="error">{toggleError}</Alert>}
+
+        {daily.alreadyClaimedToday ? (
+          <Alert variant="success">
+            Today’s reward has already been credited. Come back tomorrow for a new assignment.
+          </Alert>
+        ) : autoBalance ? (
+          daily.allDoneToday && (
+            <p className="flex items-center gap-2 text-xs text-white/50">
+              <Spinner className="h-3.5 w-3.5" />
+              Crediting your reward…
+            </p>
+          )
+        ) : (
+          <>
+            {daily.claimError && <Alert variant="error">{daily.claimError}</Alert>}
+            <Button
+              variant="primary"
+              size="md"
+              className="self-start"
+              disabled={!daily.allDoneToday || daily.claiming}
+              onClick={() => daily.claim()}
+            >
+              {daily.claiming ? "Claiming…" : "Claim Reward"}
+            </Button>
+          </>
+        )}
+      </div>
 
       <div className="flex flex-col gap-3">
         {daily.assignedTasks.map((task) => {
           const completion = daily.completions[task.id];
           const completedToday = Boolean(
-            completion?.completedAt && !isNewUtcDay(completion.completedAt.toMillis(), now),
+            completion?.completedAt && !isNewPakistanDay(completion.completedAt.toMillis(), now),
           );
           const isActive = activeTaskId === task.id;
 
@@ -98,6 +169,7 @@ export function TaskRotationList({ uid, daily, packageEarning, rewardPerAd }: Ta
                   uid={uid}
                   taskId={task.id}
                   videoUrl={task.videoUrl}
+                  minimumWatchSeconds={minimumWatchSeconds}
                   onCompleted={() => setActiveTaskId(null)}
                 />
               ) : (

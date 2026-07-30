@@ -39,7 +39,17 @@ export type NotificationKind =
   | "withdrawal"
   | "task_submission"
   | "admin_adjustment"
-  | "account_status";
+  | "account_status"
+  // Sent to a direct referrer the moment their downline's package purchase
+  // is approved and a referral commission is credited to their Coca-Cola
+  // Earning (see approveDeposit) — distinct from the "deposit"-kind
+  // notification sent to the PURCHASER themselves about their own package.
+  | "referral"
+  // Sent when an admin approves/rejects a bonus/salary tier claim (see
+  // approveBonusClaim/rejectBonusClaim) — matches the same
+  // approve/reject-notifies-the-user pattern every other financial admin
+  // action (deposit, withdrawal, task submission) already follows.
+  | "bonus";
 
 export type UserNotificationDoc = {
   uid: string;

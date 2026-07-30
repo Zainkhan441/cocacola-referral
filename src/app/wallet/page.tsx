@@ -16,28 +16,18 @@ import {
   WalletSummarySkeleton,
 } from "@/features/dashboard/components/wallet-summary";
 import {
-  DepositForm,
-  DepositFormSkeleton,
-} from "@/features/dashboard/components/deposit-form";
-import {
   WithdrawalForm,
   WithdrawalFormSkeleton,
 } from "@/features/dashboard/components/withdrawal-form";
-import {
-  DepositHistory,
-  DepositHistorySkeleton,
-} from "@/features/dashboard/components/deposit-history";
-import {
-  WithdrawalHistory,
-  WithdrawalHistorySkeleton,
-} from "@/features/dashboard/components/withdrawal-history";
 import { TransactionHistory } from "@/features/wallet/components/transaction-history";
 
-// The wallet home: balances, deposit, withdraw, and both histories in one
-// place — relocated here from the Dashboard (Milestone 20) purely to give
-// the daily-use pages (Dashboard/Work Room/Team/Wallet) a clean, single
-// responsibility each. Every component here is reused completely unchanged;
-// none of the deposit/withdrawal business logic is touched by this move.
+// The wallet home: balances and the entire withdraw system in one place.
+// The old standalone "Deposit Wallet" top-up feature has been retired
+// entirely — a payment/deposit number is only ever shown as part of the
+// one-time package purchase flow (see /packages), never here. Withdraw
+// history below is exactly this account's own withdrawal requests
+// (approved/pending/rejected) — deposits and other wallet movements have
+// no place in this view anymore.
 export default function WalletPage() {
   const { user, loading: authLoading, configured } = useAuth();
   const {
@@ -60,7 +50,7 @@ export default function WalletPage() {
     <div className="min-h-screen bg-black">
       <AppHeader />
 
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:py-14">
+      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-10 sm:py-14">
         {gateLoading && (
           <div className="flex min-h-[60vh] items-center justify-center">
             <Spinner className="h-6 w-6" />
@@ -70,14 +60,7 @@ export default function WalletPage() {
         {!gateLoading && profileLoading && (
           <div className="flex flex-col gap-6">
             <WalletSummarySkeleton />
-            <div className="grid gap-6 lg:grid-cols-2">
-              <DepositFormSkeleton />
-              <WithdrawalFormSkeleton />
-            </div>
-            <div className="grid gap-6 lg:grid-cols-2">
-              <DepositHistorySkeleton />
-              <WithdrawalHistorySkeleton />
-            </div>
+            <WithdrawalFormSkeleton />
             <Skeleton className="h-72 w-full rounded-2xl" />
           </div>
         )}
@@ -102,22 +85,12 @@ export default function WalletPage() {
                 <WalletIcon className="h-6 w-6 text-brand-light" aria-hidden="true" />
                 <h1 className="text-2xl font-bold text-white">Wallet</h1>
               </div>
-              <p className="text-sm text-white/50">
-                Your balances, deposits, and withdrawals in one place.
-              </p>
+              <p className="text-sm text-white/50">Your balances and withdrawals in one place.</p>
             </div>
 
             <WalletSummary profile={profile} />
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <DepositForm />
-              <WithdrawalForm profile={profile} />
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-2">
-              <DepositHistory />
-              <WithdrawalHistory />
-            </div>
+            <WithdrawalForm profile={profile} />
 
             <TransactionHistory />
           </>

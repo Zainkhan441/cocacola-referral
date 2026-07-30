@@ -89,19 +89,29 @@ service cloud.firestore {
     // retroactively changes what an existing holder earns. Falls back to
     // the live rate only for accounts approved before this snapshot field
     // existed.
+    // Guards user.package == null FIRST (returning a harmless 0) rather
+    // than falling through to dailyEarningFor(user.package) — building a
+    // document path with a null segment (packages/null) is an evaluation
+    // error in CEL, not just "not found", and callers of this function are
+    // frequently OR'd alongside other users/{uid} update branches (see
+    // ownerCanMarkPendingPurchase, ownerCanMarkPendingWithdrawal) that a
+    // package-less user legitimately needs to satisfy — a thrown error in
+    // one OR operand can poison the whole compound expression.
     function effectiveDailyEarning(user) {
-      return user.get("packageDailyEarning", null) != null
-        ? user.packageDailyEarning
-        : dailyEarningFor(user.package);
+      return user.package == null
+        ? 0
+        : (user.get("packageDailyEarning", null) != null ? user.packageDailyEarning : dailyEarningFor(user.package));
     }
 
     // Same "holder's own snapshot, live value as fallback" convention as
     // effectiveDailyEarning, for the daily ad-task quota instead of the
-    // earning rate.
+    // earning rate — same user.package == null guard, for the same reason.
     function effectiveDailyTaskLimit(user) {
-      return user.get("packageDailyTaskLimit", null) != null
-        ? user.packageDailyTaskLimit
-        : get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit;
+      return user.package == null
+        ? 0
+        : (user.get("packageDailyTaskLimit", null) != null
+            ? user.packageDailyTaskLimit
+            : get(/databases/$(database)/documents/packages/$(user.package)).data.dailyTaskLimit);
     }
 
     // Admin-editable flat reward paid per completed ad-watch task
@@ -116,16 +126,16 @@ service cloud.firestore {
         : get(/databases/$(database)/documents/settings/taskRewards).data.rewardPerAd;
     }
 
-    // True once this user has completed at least `requiredCount` distinct
-    // tasks TODAY (a real UTC calendar day — the same boundary
-    // canClaimDaily/isNewUtcDay use). `progress` is dailyTaskProgress/{uid}'s
-    // data, fetched once by the caller via a single get() and passed in here
-    // — never re-fetched — to keep each write's total document-access count
-    // low. Independently maintained by taskCompletions' own create/update
-    // rules (see those match blocks) — this function never trusts
-    // taskRotations/{uid}'s self-reported arrays for anything financial.
-    function dailyTaskQuotaMetFromDoc(progress, requiredCount) {
-      return !isNewUtcDay(progress.windowStartAt, request.time) && progress.count >= requiredCount;
+    // Admin-editable minimum genuinely-watched seconds required to unlock a
+    // task (settings/taskRewards.minimumWatchSeconds) — the one source of
+    // truth for the watch-time floor, mirrored by the client's video player
+    // for its own progress display. `.get(key, default)` also covers a
+    // taskRewards doc that predates this field (falls back to 7), not just
+    // a fully-absent document.
+    function taskMinimumWatchSeconds() {
+      return !exists(/databases/$(database)/documents/settings/taskRewards)
+        ? 7
+        : get(/databases/$(database)/documents/settings/taskRewards).data.get("minimumWatchSeconds", 7);
     }
 
     // Admin-editable minimum a Current Balance withdrawal request must meet
@@ -140,26 +150,30 @@ service cloud.firestore {
         : get(/databases/$(database)/documents/settings/withdrawalRules).data.currentBalanceMinWithdraw;
     }
 
-    // True once `now` falls on a later UTC calendar date than `prev` —
-    // compared explicitly by year/month/day (not by elapsed duration), so a
-    // package activated at 23:59 UTC becomes eligible for its first credit
-    // one second later at 00:00 UTC, not a full 24h afterward. Firestore
-    // timestamps are always UTC, so "00:00 server time" and "00:00 UTC" are
-    // the same instant here.
-    function isNewUtcDay(prev, now) {
-      return now.year() > prev.year()
-        || (now.year() == prev.year() && now.month() > prev.month())
-        || (now.year() == prev.year() && now.month() == prev.month() && now.day() > prev.day());
+    // True once `now` falls on a later Asia/Karachi (Pakistan, fixed UTC+5,
+    // no DST) calendar date than `prev`. Both timestamps are shifted +5h
+    // before their year/month/day are compared — CEL's timestamp.year()/
+    // .month()/.day() otherwise report UTC components, so without the
+    // shift this would silently be a UTC-day check. This shift-then-compare
+    // approach is bit-for-bit mirrored by isNewPakistanDay() in
+    // src/lib/date-utils.ts, so client and rules can never disagree about
+    // where a day boundary falls.
+    function isNewPakistanDay(prev, now) {
+      let prevPk = prev + duration.value(5, "h");
+      let nowPk = now + duration.value(5, "h");
+      return nowPk.year() > prevPk.year()
+        || (nowPk.year() == prevPk.year() && nowPk.month() > prevPk.month())
+        || (nowPk.year() == prevPk.year() && nowPk.month() == prevPk.month() && nowPk.day() > prevPk.day());
     }
 
     // `user` is an already-resolved users/{uid} data map (either `resource.data`
     // when called from within the users/{uid} rule itself, or `userData(uid)`
     // when called from a sibling collection's rule) — never re-fetched here,
     // so this works identically in both places. The anti-replay gate is a
-    // real UTC calendar-day boundary (see isNewUtcDay), not a rolling 24h
-    // window — a package's daily earning becomes claimable once at the
-    // start of every new UTC day it's active for, never twice on the same
-    // day, matching "credits once per day starting the day after
+    // real Asia/Karachi calendar-day boundary (see isNewPakistanDay), not a
+    // rolling 24h window — a package's daily earning becomes claimable once
+    // at the start of every new Pakistan day it's active for, never twice on
+    // the same day, matching "credits once per day starting the day after
     // activation" exactly (lastDailyClaimAt is seeded to activatedAt at
     // activation time, see approveDeposit). Packages never expire, and
     // disabling a package (isActive: false) never affects a holder who
@@ -170,7 +184,7 @@ service cloud.firestore {
         && user.accountStatus == "active"
         && user.package != null
         && exists(/databases/$(database)/documents/packages/$(user.package))
-        && (user.lastDailyClaimAt == null || isNewUtcDay(user.lastDailyClaimAt, request.time));
+        && (user.lastDailyClaimAt == null || isNewPakistanDay(user.lastDailyClaimAt, request.time));
     }
 
     // The owner path: a plain profile edit (e.g. a Settings-page profile/
@@ -187,28 +201,54 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly([
           "fullName", "fullNameLower", "email", "referralCode",
-          "notificationsEnabled", "themePreference", "languagePreference", "updatedAt"
+          "notificationsEnabled", "themePreference", "languagePreference",
+          "autoBalanceAfterAds", "updatedAt"
         ])
         && (!("notificationsEnabled" in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.notificationsEnabled is bool)
         && (!("themePreference" in request.resource.data.diff(resource.data).affectedKeys())
             || request.resource.data.themePreference in ["dark", "light", "system"])
         && (!("languagePreference" in request.resource.data.diff(resource.data).affectedKeys())
-            || request.resource.data.languagePreference in ["en", "ur"]);
+            || request.resource.data.languagePreference in ["en", "ur"])
+        && (!("autoBalanceAfterAds" in request.resource.data.diff(resource.data).affectedKeys())
+            || request.resource.data.autoBalanceAfterAds is bool);
     }
 
-    // The self-service bundled daily-reward claim path — replaces the old
-    // automatic-only package-earning claim entirely: package earning is no
-    // longer credited on its own, only together with the flat per-ad task
-    // reward, once every one of today's assigned tasks is genuinely
-    // complete (dailyTaskQuotaMet). Reuses the exact same UTC-calendar-day
-    // idempotency anchor (lastDailyClaimAt/isNewUtcDay) the retired
-    // automatic path already relied on, so a double-click/refresh/two-tab
-    // race is closed by the same proven mechanism, not a new one.
+    // True once this user has completed at least `requiredCount` distinct
+    // tasks TODAY (a real Asia/Karachi calendar day — the same boundary
+    // canClaimDaily/isNewPakistanDay use). `progress` is dailyTaskProgress/
+    // {uid}'s data, fetched once by the caller via a single get() and passed
+    // in here — never re-fetched. Independently maintained by
+    // taskCompletions' own create/update rules (see those match blocks) —
+    // this function never trusts taskRotations/{uid}'s self-reported arrays
+    // for anything financial. Uses >= (not ==) deliberately: a user who
+    // watches more ads than their package requires (the active pool can be
+    // larger than any one package's daily requirement) still only needs to
+    // have met, not exactly hit, the quota — completing extra ads beyond it
+    // never increases claimable money (the claimed amounts below are always
+    // computed from dailyTaskLimit itself, never from progress.count).
+    function dailyTaskQuotaMetFromDoc(progress, requiredCount) {
+      return !isNewPakistanDay(progress.windowStartAt, request.time) && progress.count >= requiredCount;
+    }
+
+    // Phase 4 FINAL RULE: watching an ad only records completion
+    // (taskCompletions/dailyTaskProgress) — no money moves there at all
+    // (see completeTaskWatch, which no longer touches users/wallets/
+    // transactions/dailyRewards). Money only ever moves through this ONE
+    // bundled claim path — manual (a "Claim Reward" button, gated by
+    // autoBalanceAfterAds == false) or automatic (fires the instant the
+    // quota is met, gated by autoBalanceAfterAds == true) — but both modes
+    // call the exact same claimDailyTaskReward transaction, gated by the
+    // exact same rule, so neither can ever credit a second time for the
+    // same Pakistan day: the SAME lastDailyClaimAt/isNewPakistanDay
+    // idempotency anchor closes a double-click, a two-tab race, AND an
+    // auto-vs-manual race identically, and dailyRewards/{uid_dateKey_
+    // packageId}'s deterministic id (see that collection's own rule) is a
+    // second, independent, create-only guard against the same thing.
     function ownerCanClaimDailyTaskReward(uid) {
       let user = resource.data;
       let requiredCount = effectiveDailyTaskLimit(user);
-      let taskReward = requiredCount * taskRewardPerAd();
+      let taskRewardSum = requiredCount * taskRewardPerAd();
       let packageEarning = effectiveDailyEarning(user);
       let progress = get(/databases/$(database)/documents/dailyTaskProgress/$(uid)).data;
       return canClaimDaily(user)
@@ -216,10 +256,10 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(["currentBalance", "cocaColaEarning", "totalEarnings", "todayEarnings", "lastDailyClaimAt", "updatedAt"])
         && request.resource.data.lastDailyClaimAt == request.time
-        && request.resource.data.currentBalance == resource.data.currentBalance + taskReward
+        && request.resource.data.currentBalance == resource.data.currentBalance + taskRewardSum
         && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + packageEarning
-        && request.resource.data.totalEarnings == resource.data.totalEarnings + taskReward + packageEarning
-        && request.resource.data.todayEarnings == taskReward + packageEarning;
+        && request.resource.data.totalEarnings == resource.data.totalEarnings + taskRewardSum + packageEarning
+        && request.resource.data.todayEarnings == taskRewardSum + packageEarning;
     }
 
     // The self-service "I'm submitting a package-purchase deposit" marker —
@@ -256,22 +296,23 @@ service cloud.firestore {
 
     // Mirrors ownerCanClaimDailyTaskReward() for the wallets/{uid} document
     // — reads the user's package/quota via userData(uid) since
-    // wallets/{uid} itself doesn't store those fields. Both writes happen
-    // in the same client transaction as the users/{uid} update above, and
-    // both are independently gated the same way, so neither can be written
-    // alone by a client skipping the other.
+    // wallets/{uid} itself doesn't store those fields (nor todayEarnings,
+    // which only users/{uid} tracks). Both writes happen in the same
+    // client transaction as the users/{uid} update, and both are
+    // independently gated the same way, so neither can be written alone by
+    // a client skipping the other.
     function ownerCanClaimDailyTaskRewardWallet(uid) {
       let user = userData(uid);
       let requiredCount = effectiveDailyTaskLimit(user);
-      let taskReward = requiredCount * taskRewardPerAd();
+      let taskRewardSum = requiredCount * taskRewardPerAd();
       let packageEarning = effectiveDailyEarning(user);
       let progress = get(/databases/$(database)/documents/dailyTaskProgress/$(uid)).data;
       return canClaimDaily(user)
         && dailyTaskQuotaMetFromDoc(progress, requiredCount)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["currentBalance", "cocaColaEarning", "totalEarnings", "updatedAt"])
-        && request.resource.data.currentBalance == resource.data.currentBalance + taskReward
+        && request.resource.data.currentBalance == resource.data.currentBalance + taskRewardSum
         && request.resource.data.cocaColaEarning == resource.data.cocaColaEarning + packageEarning
-        && request.resource.data.totalEarnings == resource.data.totalEarnings + taskReward + packageEarning;
+        && request.resource.data.totalEarnings == resource.data.totalEarnings + taskRewardSum + packageEarning;
     }
 
     // The admin path: deliberately narrower than "admin can do anything".
@@ -343,6 +384,7 @@ service cloud.firestore {
         && request.resource.data.notificationsEnabled == true
         && request.resource.data.themePreference == "dark"
         && request.resource.data.languagePreference == "en"
+        && request.resource.data.autoBalanceAfterAds == false
         && request.resource.data.role == "user"
         && request.resource.data.accountStatus == "active";
       allow update: if (isOwner(uid) && ownerCanUpdateUser())
@@ -530,16 +572,19 @@ service cloud.firestore {
         && request.resource.data.screenshotDeletedAt == null
         && request.resource.data.screenshotDeletedBy == null
         && request.resource.data.screenshotDeletionReason == null
-        && isValidPackageRef(request.resource.data.packageId)
-        && (
-             (request.resource.data.packageId == null
-               && request.resource.data.amount >= 500
-               && request.resource.data.amount <= 100000)
-             || (request.resource.data.packageId != null
-               && get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.isActive == true
-               && request.resource.data.amount == get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.price
-               && userData(request.auth.uid).pendingPackagePurchaseId == null)
-           );
+        // Plain wallet top-ups are retired — every deposit must be a
+        // package purchase now, and only ever the account's very first
+        // one: a user who already holds any package (userData(uid).package
+        // != null) can never create another package-purchase deposit here,
+        // full stop — a different package strictly requires a new account.
+        // This is the actual, server-enforced half of that rule; the UI
+        // half (no purchase form shown, /packages redirects away) is just
+        // the honest reflection of it.
+        && request.resource.data.packageId != null
+        && get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.isActive == true
+        && request.resource.data.amount == get(/databases/$(database)/documents/packages/$(request.resource.data.packageId)).data.price
+        && userData(request.auth.uid).pendingPackagePurchaseId == null
+        && userData(request.auth.uid).package == null;
       allow update: if isAdmin() && (adminCanReviewRequest() || adminCanDeleteScreenshot());
       allow delete: if false;
     }
@@ -679,13 +724,24 @@ service cloud.firestore {
     // edit their own claim history.
     match /dailyRewards/{id} {
       allow read: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      // Deterministic id ({uid}_{dateKey}_{packageId} — see
+      // daily-rewards.ts's dailyRewardDocRef) makes THIS document's mere
+      // existence the idempotency guard: a retried/duplicated claim attempt
+      // for the same Pakistan day can never create a second one. Also
+      // independently protected by the SAME users/{uid} write happening in
+      // the same transaction (see ownerCanClaimDailyTaskReward) — belt and
+      // suspenders, not a substitute for it.
       allow create: if isSignedIn()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.packageId == userData(request.auth.uid).package
         && request.resource.data.amount == effectiveDailyEarning(userData(request.auth.uid))
         && request.resource.data.status == "claimed"
         && request.resource.data.rewardDate is string
-        && canClaimDaily(userData(request.auth.uid));
+        && canClaimDaily(userData(request.auth.uid))
+        && dailyTaskQuotaMetFromDoc(
+             get(/databases/$(database)/documents/dailyTaskProgress/$(request.auth.uid)).data,
+             effectiveDailyTaskLimit(userData(request.auth.uid))
+           );
       allow update, delete: if false;
     }
 
@@ -777,18 +833,19 @@ service cloud.firestore {
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.taskId == resource.data.taskId
         && (
-          // Re-Start for a new UTC day (the previous completion is stale).
+          // Re-Start for a new Pakistan day (the previous completion is stale).
           (resource.data.completedAt != null
-            && isNewUtcDay(resource.data.completedAt, request.time)
+            && isNewPakistanDay(resource.data.completedAt, request.time)
             && request.resource.data.startedAt == request.time
             && request.resource.data.completedAt == null)
           // Complete today's Start — the one real anti-instant-click floor:
-          // at least 10 real wall-clock seconds since startedAt. Task
-          // eligibility is deliberately NOT re-checked here — if a task
-          // goes inactive mid-watch, no reward is owed for it, which is
-          // correct, not a bug.
+          // at least taskMinimumWatchSeconds() real wall-clock seconds since
+          // startedAt (admin-configurable, default 7 — see settings/
+          // taskRewards.minimumWatchSeconds). Task eligibility is
+          // deliberately NOT re-checked here — if a task goes inactive
+          // mid-watch, no reward is owed for it, which is correct, not a bug.
           || (resource.data.completedAt == null
-            && request.time >= resource.data.startedAt + duration.value(10, "s")
+            && request.time >= resource.data.startedAt + duration.value(taskMinimumWatchSeconds(), "s")
             && request.resource.data.startedAt == resource.data.startedAt
             && request.resource.data.completedAt == request.time)
         );
@@ -796,8 +853,8 @@ service cloud.firestore {
     }
 
     // One document per user (doc id == uid) — counts how many DISTINCT
-    // tasks this user has completed TODAY (a real UTC calendar day),
-    // against effectiveDailyTaskLimit(). Incremented by exactly 1 in the
+    // tasks this user has completed TODAY (a real Asia/Karachi calendar
+    // day), against effectiveDailyTaskLimit(). Incremented by exactly 1 in the
     // SAME transaction as a taskCompletions Complete-transition; since a
     // given task can only complete once per day (see above), double-
     // counting one task toward this count is impossible by construction.
@@ -810,10 +867,10 @@ service cloud.firestore {
       allow update: if isOwner(uid)
         && request.resource.data.uid == resource.data.uid
         && (
-          (isNewUtcDay(resource.data.windowStartAt, request.time)
+          (isNewPakistanDay(resource.data.windowStartAt, request.time)
             && request.resource.data.count == 1
             && request.resource.data.windowStartAt == request.time)
-          || (!isNewUtcDay(resource.data.windowStartAt, request.time)
+          || (!isNewPakistanDay(resource.data.windowStartAt, request.time)
             && request.resource.data.count == resource.data.count + 1
             && request.resource.data.windowStartAt == resource.data.windowStartAt)
         );
@@ -1034,7 +1091,7 @@ service cloud.firestore {
                && id == request.resource.data.announcementId + "_" + request.resource.data.uid
                && request.resource.data.announcementId is string
                && exists(/databases/$(database)/documents/announcements/$(request.resource.data.announcementId)))
-             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission", "admin_adjustment", "account_status"]
+             || (request.resource.data.kind in ["deposit", "withdrawal", "task_submission", "admin_adjustment", "account_status", "referral", "bonus"]
                && request.resource.data.announcementId == null)
            );
       allow update: if isSignedIn()
@@ -1116,12 +1173,20 @@ service cloud.firestore {
           && (request.resource.data.contactAddress == null || request.resource.data.contactAddress is string))
         || (settingId == "withdrawalRules"
           && request.resource.data.currentBalanceMinWithdraw is number && request.resource.data.currentBalanceMinWithdraw >= 0
-          && request.resource.data.cocaColaRequiredLevel is number && request.resource.data.cocaColaRequiredLevel >= 0)
+          // cocaColaRequiredLevel is a Level NUMBER (1-12, resolved via the
+          // shared level utility client/admin-side) — null disables
+          // Coca-Cola Earning withdrawals entirely. Never a raw referral
+          // count stored directly.
+          && (request.resource.data.cocaColaRequiredLevel == null
+              || (request.resource.data.cocaColaRequiredLevel is int
+                  && request.resource.data.cocaColaRequiredLevel >= 1
+                  && request.resource.data.cocaColaRequiredLevel <= 12)))
         || (settingId == "paymentDetails"
           && request.resource.data.accountTitle is string && request.resource.data.accountTitle.size() > 0
           && request.resource.data.accountNumber is string && request.resource.data.accountNumber.size() > 0)
         || (settingId == "taskRewards"
-          && request.resource.data.rewardPerAd is number && request.resource.data.rewardPerAd > 0)
+          && request.resource.data.rewardPerAd is number && request.resource.data.rewardPerAd > 0
+          && request.resource.data.minimumWatchSeconds is number && request.resource.data.minimumWatchSeconds > 0)
       );
     }
 

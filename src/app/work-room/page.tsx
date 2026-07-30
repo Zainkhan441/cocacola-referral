@@ -17,7 +17,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { MissingProfileRecovery } from "@/features/dashboard/components/missing-profile-recovery";
 import { ClaimHistory } from "@/features/dashboard/components/claim-history";
 import { TaskRotationList } from "@/features/tasks/components/task-rotation-list";
-import { DEFAULT_TASK_REWARD_PER_AD } from "@/lib/firestore/settings";
+import { DEFAULT_TASK_REWARD_PER_AD, DEFAULT_MINIMUM_WATCH_SECONDS } from "@/lib/firestore/settings";
 
 // The daily ritual home: today's assigned ad tasks and the bundled reward
 // they unlock, plus the claim history log — reuses the exact same
@@ -38,6 +38,7 @@ export default function WorkRoomPage() {
 
   const daily = useDailyTasks(user?.uid, profile, packageInfo, tasks, tasksLoading);
   const rewardPerAd = rewardSettings?.rewardPerAd ?? DEFAULT_TASK_REWARD_PER_AD;
+  const minimumWatchSeconds = rewardSettings?.minimumWatchSeconds ?? DEFAULT_MINIMUM_WATCH_SECONDS;
   const packageEarning = profile?.packageDailyEarning ?? packageInfo?.dailyEarning ?? 0;
 
   const hasQualifyingPackage = Boolean(profile?.package);
@@ -128,6 +129,8 @@ export default function WorkRoomPage() {
                 daily={daily}
                 packageEarning={packageEarning}
                 rewardPerAd={rewardPerAd}
+                minimumWatchSeconds={minimumWatchSeconds}
+                autoBalanceAfterAds={profile?.autoBalanceAfterAds ?? false}
               />
             )}
 

@@ -12,9 +12,10 @@ type UsePackageLimitsResult = {
   retry: () => void;
 };
 
-// packageId is null for every user until the package-purchase milestone
-// ships — in that case this resolves immediately with packageInfo: null,
-// which callers should treat as "no withdrawal limit available yet", not 0.
+// packageId is null for a user who has never held a package — in that case
+// this resolves immediately with packageInfo: null, which callers (task
+// limits, daily earning, package-restricted eligibility) should treat as
+// "not yet known/eligible", never as 0.
 export function usePackageLimits(packageId: string | null): UsePackageLimitsResult {
   const canFetch = Boolean(db && packageId);
 

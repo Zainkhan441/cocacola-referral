@@ -19,11 +19,21 @@ export function validateCurrentBalanceMinWithdraw(raw: string): string | null {
   return null;
 }
 
+// The select's raw value is either the sentinel "disabled" or a Level
+// number "1".."12" as a string — never a free-typed referral count.
 export function validateCocaColaRequiredLevel(raw: string): string | null {
+  if (raw === "disabled") return null;
   const value = parseNumericInput(raw);
-  if (value == null) return "Required Level must be a valid number.";
-  if (!Number.isInteger(value) || value < 0) {
-    return "Required Level must be a whole number, 0 or greater.";
+  if (value == null || !Number.isInteger(value) || value < 1 || value > 12) {
+    return "Select a valid Level (1-12) or Disabled.";
   }
   return null;
+}
+
+// Converts the select's raw string value into the stored shape (a Level
+// number 1-12, or null for "disabled") — call only after
+// validateCocaColaRequiredLevel has returned null.
+export function parseCocaColaRequiredLevel(raw: string): number | null {
+  if (raw === "disabled") return null;
+  return Number(raw.trim());
 }

@@ -56,7 +56,15 @@ export default function PackagesPage() {
       router.replace("/login");
       return;
     }
-  }, [configured, authLoading, user, router]);
+    // Package selection is a one-time, first-login-only step. Once a
+    // package is owned, this page is never revisitable — no browsing a
+    // different package, no upgrades. A different package strictly
+    // requires a new account (see firestore.rules' permanent one-package-
+    // per-account lock on deposits/{id}).
+    if (!profileLoading && profile && profile.role !== "admin" && profile.package != null) {
+      router.replace("/dashboard");
+    }
+  }, [configured, authLoading, user, profile, profileLoading, router]);
 
   // Tracks whether this user arrived here locked (no package yet) so an
   // already-unlocked user browsing /packages to buy a second package never
@@ -86,7 +94,14 @@ export default function PackagesPage() {
     );
   }
 
-  const gateLoading = authLoading || !user || accountBlocked;
+  // Excludes the "justUnlocked" transition deliberately — that's the
+  // legitimate "purchase just got approved while I was on this page" case,
+  // which has its own success message + redirect timer below. This gate is
+  // only for someone who ARRIVES at /packages already owning a package.
+  const alreadyOwnsPackage = Boolean(
+    profile && profile.role !== "admin" && profile.package != null && !justUnlocked,
+  );
+  const gateLoading = authLoading || !user || accountBlocked || (!profileLoading && alreadyOwnsPackage);
 
   return (
     <div className="min-h-screen bg-black">
@@ -138,56 +153,63 @@ export default function PackagesPage() {
               </Alert>
             )}
 
-            {profile.pendingPackagePurchaseId && (
+            {profile.pendingPackagePurchaseId ? (
+              // Once a purchase request has been submitted, package
+              // selection is over — no cards, no browsing, no "pick a
+              // different one" option. Just a status message until an
+              // admin approves or rejects it (rejection clears
+              // pendingPackagePurchaseId, which brings the cards back).
               <Alert variant="info">
-                You have a package purchase awaiting review. You can select a new package once
-                it’s been approved or rejected.
+                Your package purchase is awaiting admin review. This page will unlock your
+                dashboard automatically once it’s approved.
               </Alert>
-            )}
+            ) : (
+              <>
+                {packagesLoading && (
+                  <div className="flex flex-col items-center gap-6">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <Skeleton key={index} className="h-80 w-full max-w-md rounded-2xl" />
+                    ))}
+                  </div>
+                )}
 
-            {packagesLoading && (
-              <div className="flex flex-col items-center gap-6">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <Skeleton key={index} className="h-80 w-full max-w-md rounded-2xl" />
-                ))}
-              </div>
-            )}
+                {!packagesLoading && packagesError && (
+                  <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
+                    <Alert variant="error">{packagesError}</Alert>
+                    <Button variant="outline" size="sm" onClick={retryPackages}>
+                      Retry
+                    </Button>
+                  </div>
+                )}
 
-            {!packagesLoading && packagesError && (
-              <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-surface-2 p-6">
-                <Alert variant="error">{packagesError}</Alert>
-                <Button variant="outline" size="sm" onClick={retryPackages}>
-                  Retry
-                </Button>
-              </div>
-            )}
+                {!packagesLoading && !packagesError && packages.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
+                    <p className="text-sm text-white/50">No packages are available yet.</p>
+                  </div>
+                )}
 
-            {!packagesLoading && !packagesError && packages.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
-                <p className="text-sm text-white/50">No packages are available yet.</p>
-              </div>
-            )}
+                {!packagesLoading && !packagesError && packages.length > 0 && (
+                  <div className="flex flex-col items-center gap-6">
+                    {packages.map((pkg) => (
+                      <PackageCard
+                        key={pkg.id}
+                        pkg={pkg}
+                        isCurrent={profile.package === pkg.id}
+                        disabledReason={null}
+                        onSelect={() => setSelectedPackage(pkg)}
+                      />
+                    ))}
+                  </div>
+                )}
 
-            {!packagesLoading && !packagesError && packages.length > 0 && (
-              <div className="flex flex-col items-center gap-6">
-                {packages.map((pkg) => (
-                  <PackageCard
-                    key={pkg.id}
-                    pkg={pkg}
-                    isCurrent={profile.package === pkg.id}
-                    disabledReason={profile.pendingPackagePurchaseId ? "Purchase pending review" : null}
-                    onSelect={() => setSelectedPackage(pkg)}
+                {selectedPackage && (
+                  <PackagePurchaseForm
+                    pkg={selectedPackage}
+                    onDone={() => setSelectedPackage(null)}
+                    onCancel={() => setSelectedPackage(null)}
                   />
-                ))}
-              </div>
-            )}
-
-            {selectedPackage && (
-              <PackagePurchaseForm
-                pkg={selectedPackage}
-                onDone={() => setSelectedPackage(null)}
-                onCancel={() => setSelectedPackage(null)}
-              />
+                )}
+              </>
             )}
 
             <PackagePurchaseHistory />

@@ -124,13 +124,21 @@ export async function setPaymentSettings(db: Firestore, input: PaymentSettingsIn
 
 // A third singleton doc in the same `settings` collection — the two
 // admin-editable withdrawal gates: the minimum amount a Current Balance
-// withdrawal must reach, and the direct-active-referral "Level" a
-// Coca-Cola Earning withdrawal requires. Absence of this document falls
-// back to the platform defaults (Rs 500, Level 10) — see firestore.rules
-// `withdrawalRulesConfig()`.
+// withdrawal must reach, and the shared CocaCola Level (1-12, see
+// src/lib/level.ts) a Coca-Cola Earning withdrawal requires. Absence of
+// this document falls back to the platform defaults (Rs 500, Level 1).
+//
+// cocaColaRequiredLevel stores ONLY the Level NUMBER (1-12), or null to
+// disable Coca-Cola Earning withdrawals entirely — never a duplicate,
+// independently-invented referral-count threshold. Every consumer must
+// resolve the actual required referral count via thresholdForLevel() from
+// the shared level utility, never trust a raw number stored here as if it
+// were itself a referral count (that was the old, incorrect design: a
+// "cocaColaRequiredLevel: 10" used to mean "need 10 referrals", disagreeing
+// with the real Level system where Level 10 needs 500).
 export type WithdrawalRulesDoc = {
   currentBalanceMinWithdraw: number;
-  cocaColaRequiredLevel: number;
+  cocaColaRequiredLevel: number | null;
   updatedAt: Timestamp;
 };
 
@@ -145,7 +153,7 @@ export async function getWithdrawalRules(db: Firestore): Promise<WithdrawalRules
 
 export type WithdrawalRulesInput = {
   currentBalanceMinWithdraw: number;
-  cocaColaRequiredLevel: number;
+  cocaColaRequiredLevel: number | null;
 };
 
 export async function setWithdrawalRules(db: Firestore, input: WithdrawalRulesInput): Promise<void> {
@@ -166,8 +174,16 @@ export async function setWithdrawalRules(db: Firestore, input: WithdrawalRulesIn
 // paymentDetails above.
 export const DEFAULT_TASK_REWARD_PER_AD = 5;
 
+// The one source of truth for "how many genuinely-watched seconds unlock a
+// task" — read live by firestore.rules (taskMinimumWatchSeconds()) and by
+// the video player, never hard-coded separately in either place. Absence
+// of this document (or of just this field, for a doc predating it) falls
+// back to 7s.
+export const DEFAULT_MINIMUM_WATCH_SECONDS = 7;
+
 export type TaskRewardSettingsDoc = {
   rewardPerAd: number;
+  minimumWatchSeconds: number;
   updatedAt: Timestamp;
 };
 
@@ -182,6 +198,7 @@ export async function getTaskRewardSettings(db: Firestore): Promise<TaskRewardSe
 
 export type TaskRewardSettingsInput = {
   rewardPerAd: number;
+  minimumWatchSeconds: number;
 };
 
 export async function setTaskRewardSettings(db: Firestore, input: TaskRewardSettingsInput): Promise<void> {

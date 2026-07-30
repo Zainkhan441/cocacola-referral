@@ -16,13 +16,17 @@ import { MoreMenu } from "@/components/layout/more-menu";
 // primary row stays scannable at a glance rather than growing unbounded as
 // pages are added; no page below became any less reachable, they just moved
 // one tap deeper.
+// No "Packages" entry, deliberately: package selection is a one-time,
+// first-login-only step (a package-less account is auto-redirected to
+// /packages by useAppAccessGate) — once a package is owned, /packages
+// itself redirects away, so it's never a persistent, revisitable nav
+// destination. A different package requires a new account.
 const PRIMARY_NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/work-room", label: "Work Room" },
   { href: "/wallet", label: "Wallet" },
-  { href: "/team", label: "Team" },
+  { href: "/team", label: "Staff Earning" },
   { href: "/tasks", label: "Tasks" },
-  { href: "/packages", label: "Packages" },
   { href: "/bonuses", label: "Bonuses" },
 ] as const;
 
@@ -33,7 +37,7 @@ const MORE_NAV_LINKS = [
 ] as const;
 
 // The one shared header for every signed-in, non-admin page (dashboard,
-// work room, wallet, team, tasks, packages, bonuses, channel, guide,
+// work room, wallet, staff earning, tasks, packages, bonuses, channel, guide,
 // settings, notifications) — replaces what used to be nine near-identical
 // inline headers, each of which would otherwise need the same bell/links
 // added by hand. Mirrors AdminShell's exact two-row structure (title bar +

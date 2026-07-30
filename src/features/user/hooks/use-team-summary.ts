@@ -6,6 +6,7 @@ import {
   getTeamTotalCount,
   getTeamActiveCount,
   getTeamLevelCounts,
+  getDirectActiveReferralCount,
 } from "@/lib/firestore/team-members";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useResetOnKeyChange } from "@/features/user/hooks/use-reset-on-key-change";
@@ -14,6 +15,14 @@ export type TeamSummary = {
   total: number;
   active: number;
   levelCounts: Record<number, number>;
+  // Direct (level 1) referrals who currently hold a package — distinct
+  // from levelCounts[1], which counts every level-1 registration
+  // regardless of package status. The 12-level CocaCola Level System and
+  // all bonus/Level eligibility must use this field, never levelCounts[1],
+  // so a claim/level can't be satisfied by referrals who signed up but
+  // never activated (see level.ts, bonus-tier-card.tsx,
+  // bonuses/lib/actions.ts).
+  directActive: number;
 };
 
 type UseTeamSummaryResult = {
@@ -48,10 +57,11 @@ export function useTeamSummary(): UseTeamSummaryResult {
       getTeamTotalCount(firestore, uid),
       getTeamActiveCount(firestore, uid),
       getTeamLevelCounts(firestore, uid),
+      getDirectActiveReferralCount(firestore, uid),
     ])
-      .then(([total, active, levelCounts]) => {
+      .then(([total, active, levelCounts, directActive]) => {
         if (cancelled) return;
-        setSummary({ total, active, levelCounts });
+        setSummary({ total, active, levelCounts, directActive });
         setLoading(false);
       })
       .catch(() => {

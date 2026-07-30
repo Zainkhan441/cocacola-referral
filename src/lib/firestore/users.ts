@@ -53,14 +53,19 @@ export type UserDoc = {
   // of wallets/{uid}.balance for fast dashboard reads without a second
   // fetch; any future mutation must update both documents together.
   walletBalance: number;
-  // Current Balance — credited ONLY by approved task completions.
-  // Independently withdrawable, gated by an admin-editable minimum amount
-  // (see settings/withdrawalRules).
+  // Current Balance — credited by the bundled daily task-reward claim (sum
+  // of every completed required ad's rewardPerAd, once per Pakistan day —
+  // see claimDailyTaskReward), manual or automatic depending on
+  // autoBalanceAfterAds. Independently withdrawable, gated by an
+  // admin-editable minimum amount (see settings/withdrawalRules).
   currentBalance: number;
-  // Coca-Cola Earning — credited ONLY by the automatic daily package
-  // earning engine (never by a manual claim). Independently withdrawable,
-  // gated by the user's own direct-active-referral count reaching an
-  // admin-editable required level (default 10; see settings/withdrawalRules).
+  // Coca-Cola Earning — credited by the SAME bundled daily claim (the
+  // package's own dailyEarning, atomically alongside the Current Balance
+  // credit above) and by the direct-referral commission engine (paid once,
+  // on a downline's package approval — see deposit-actions.ts). Independently
+  // withdrawable, gated by the user's own direct-active-referral count
+  // reaching an admin-editable required level (default 10; see
+  // settings/withdrawalRules).
   cocaColaEarning: number;
   // Staff Earning — credited ONLY by the 12-level referral commission
   // engine, automatically on a downline package approval. Not directly
@@ -115,10 +120,10 @@ export type UserDoc = {
   // firestore.rules `ownerCanMarkPendingWithdrawal`.
   pendingWithdrawalCurrentBalance: string | null;
   pendingWithdrawalCocaColaEarning: string | null;
-  // The UTC-calendar-day gate Firestore rules use for the automatic daily
+  // The Asia/Karachi calendar-day gate Firestore rules use for the automatic daily
   // package earning credit (see firestore.rules `canClaimDaily`/
-  // `isNewUtcDay`) — a new credit is allowed once `request.time` falls on a
-  // later UTC calendar date than this timestamp, not after a fixed 24h
+  // `isNewPakistanDay`) — a new credit is allowed once `request.time` falls on a
+  // later Pakistan calendar date than this timestamp, not after a fixed 24h
   // duration.
   lastDailyClaimAt: Timestamp | null;
   // Milestone 13 Settings preferences — all self-editable, none affecting
@@ -131,6 +136,14 @@ export type UserDoc = {
   notificationsEnabled: boolean;
   themePreference: "dark" | "light" | "system";
   languagePreference: "en" | "ur";
+  // Phase 4: when true, the moment every one of today's required ads is
+  // completed, the bundled daily claim (task rewards -> Current Balance,
+  // package dailyEarning -> Coca-Cola Earning) runs automatically with no
+  // click. Defaults to false (manual "Claim Reward" button) for every new
+  // account; existing accounts predating this field are always read as
+  // `profile.autoBalanceAfterAds ?? false` everywhere this is checked, never
+  // assumed present — see use-daily-tasks.ts.
+  autoBalanceAfterAds: boolean;
   accountStatus: AccountStatus;
   role: UserRole;
   // No email-verification flow exists — every account is usable immediately
@@ -192,6 +205,7 @@ export function buildInitialUserData(input: CreateUserDocumentInput) {
     notificationsEnabled: true,
     themePreference: "dark" as const,
     languagePreference: "en" as const,
+    autoBalanceAfterAds: false,
     accountStatus: "active" as const,
     role: "user" as const,
     emailVerified: true,
@@ -271,6 +285,23 @@ export async function setNotificationsEnabled(
 ): Promise<void> {
   await updateDoc(userDocRef(db, uid), {
     notificationsEnabled: enabled,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+// Toggles the Phase 4 "Auto balance after ad watching" preference. Turning
+// it on doesn't itself credit anything — it only changes which path future
+// (and, if all of today's required ads are already done, THIS Pakistan
+// day's) claim goes through; use-daily-tasks.ts's auto-claim effect reacts
+// to this field changing and fires claimDailyTaskReward if the user is
+// already eligible and hasn't claimed yet.
+export async function setAutoBalanceAfterAds(
+  db: Firestore,
+  uid: string,
+  enabled: boolean,
+): Promise<void> {
+  await updateDoc(userDocRef(db, uid), {
+    autoBalanceAfterAds: enabled,
     updatedAt: serverTimestamp(),
   });
 }

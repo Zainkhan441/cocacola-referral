@@ -15,6 +15,6 @@ export async function updateTaskRewardSettingsAction(
     action: "settings.task_reward_updated",
     targetType: "settings",
     targetId: "taskRewards",
-    details: `Set task reward per ad to Rs ${input.rewardPerAd}`,
+    details: `Set task reward per ad to Rs ${input.rewardPerAd}, minimum watch time to ${input.minimumWatchSeconds}s`,
   });
 }

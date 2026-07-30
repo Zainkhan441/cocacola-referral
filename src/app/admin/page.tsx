@@ -56,7 +56,7 @@ export default function AdminDashboardPage() {
               liability snapshot, not a lifetime total.
             </p>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <StatCard label="Deposit Wallet" value={formatCurrency(stats.platformDepositWallet)} />
+              <StatCard label="Legacy Wallet Balance" value={formatCurrency(stats.platformDepositWallet)} />
               <StatCard label="Current Balance" value={formatCurrency(stats.platformCurrentBalance)} />
               <StatCard
                 label="Coca-Cola Earning"

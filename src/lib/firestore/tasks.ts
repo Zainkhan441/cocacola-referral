@@ -31,8 +31,9 @@ export type TaskDoc = {
   instructions: string;
   // Eligibility gate, mutually exclusive with minPackagePrice: the user's
   // active package must be exactly this one. Null means no exact-package
-  // restriction (see minPackagePrice / the baseline "must have some active,
-  // unexpired package" check applied everywhere task eligibility is decided).
+  // restriction (see minPackagePrice / the baseline "must currently hold an
+  // active package" check applied everywhere task eligibility is decided —
+  // packages never expire, so there is no separate "unexpired" condition).
   requiredPackageId: string | null;
   // Eligibility gate, mutually exclusive with requiredPackageId: the user's
   // active package's price must be at least this amount — a tier-style

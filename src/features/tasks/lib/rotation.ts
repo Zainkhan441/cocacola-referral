@@ -1,10 +1,5 @@
 import type { TaskRotationDoc, TaskRotationWriteInput } from "@/lib/firestore/task-rotations";
-
-// "YYYY-MM-DD" in UTC — informational only (see task-rotations.ts), used
-// purely to detect "have I already computed today's assignment."
-export function utcDateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+import { pakistanDateKey } from "@/lib/date-utils";
 
 function shuffle<T>(items: readonly T[]): T[] {
   const result = [...items];
@@ -45,7 +40,7 @@ export function computeTodaysAssignment({
   now,
   completedSinceLastAssignment = [],
 }: ComputeAssignmentInput): TaskRotationWriteInput | null {
-  const today = utcDateKey(now);
+  const today = pakistanDateKey(now.getTime());
   const eligibleSet = new Set(eligibleActiveTaskIds);
 
   let cycleId = existing?.cycleId ?? 1;

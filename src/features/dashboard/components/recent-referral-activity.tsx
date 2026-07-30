@@ -27,7 +27,7 @@ export function RecentReferralActivity() {
       renderItem={(reward) => (
         <HistoryListRow
           title={`${reward.sourceName} · ${reward.packageName || "package"}`}
-          subtitle={formatDate(reward.createdAt)}
+          subtitle={`${formatDate(reward.createdAt)} · Ref: ${reward.depositId}`}
           amount={reward.amount}
           direction="in"
           status={reward.status}

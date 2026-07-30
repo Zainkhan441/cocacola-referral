@@ -12,11 +12,15 @@ import { updateWithdrawalRulesAction } from "@/features/admin/lib/withdrawal-rul
 import {
   validateCurrentBalanceMinWithdraw,
   validateCocaColaRequiredLevel,
+  parseCocaColaRequiredLevel,
 } from "@/features/admin/lib/withdrawal-rules-validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
+import { LEVEL_THRESHOLDS, levelLabel, thresholdForLevel } from "@/lib/level";
 
 const DEFAULT_CURRENT_BALANCE_MIN_WITHDRAW = 500;
-const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
+// The lowest, most permissive Level by default — a fresh, unconfigured
+// platform shouldn't lock every user out of Coca-Cola Earning withdrawals.
+const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 1;
 
 export function WithdrawalRulesForm() {
   const { user } = useAuth();
@@ -61,7 +65,9 @@ function WithdrawalRulesFormFields({ initial, adminUid, adminName }: WithdrawalR
     String(initial?.currentBalanceMinWithdraw ?? DEFAULT_CURRENT_BALANCE_MIN_WITHDRAW),
   );
   const [cocaColaRequiredLevel, setCocaColaRequiredLevel] = useState(
-    String(initial?.cocaColaRequiredLevel ?? DEFAULT_COCA_COLA_REQUIRED_LEVEL),
+    initial?.cocaColaRequiredLevel === null
+      ? "disabled"
+      : String(initial?.cocaColaRequiredLevel ?? DEFAULT_COCA_COLA_REQUIRED_LEVEL),
   );
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -87,7 +93,7 @@ function WithdrawalRulesFormFields({ initial, adminUid, adminName }: WithdrawalR
       await updateWithdrawalRulesAction(
         {
           currentBalanceMinWithdraw: Number(currentBalanceMinWithdraw.trim()),
-          cocaColaRequiredLevel: Number(cocaColaRequiredLevel.trim()),
+          cocaColaRequiredLevel: parseCocaColaRequiredLevel(cocaColaRequiredLevel),
         },
         { adminUid, adminName },
       );
@@ -108,8 +114,9 @@ function WithdrawalRulesFormFields({ initial, adminUid, adminName }: WithdrawalR
       <h2 className="text-sm font-semibold text-white">Withdraw rules</h2>
       <p className="text-sm text-white/50">
         Current Balance withdrawals require reaching the minimum amount below. Coca-Cola Earning
-        withdrawals instead require the requester&apos;s direct active-referral Level to reach the
-        required Level below (Level N = N direct active referrals).
+        withdrawals instead require the requester to reach the shared CocaCola Level selected
+        below — the same 12-level system shown on the Staff Earning page, resolved to its real
+        active-direct-referral threshold, never a separately-invented number.
       </p>
 
       {formError && <Alert variant="error">{formError}</Alert>}
@@ -124,15 +131,35 @@ function WithdrawalRulesFormFields({ initial, adminUid, adminName }: WithdrawalR
           onChange={(event) => setCurrentBalanceMinWithdraw(event.target.value)}
           error={fieldErrors.currentBalanceMinWithdraw}
         />
-        <FormField
-          label="Coca-Cola Earning required Level"
-          type="number"
-          inputMode="numeric"
-          step={1}
-          value={cocaColaRequiredLevel}
-          onChange={(event) => setCocaColaRequiredLevel(event.target.value)}
-          error={fieldErrors.cocaColaRequiredLevel}
-        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium text-white/80">Coca-Cola Earning required Level</label>
+          <select
+            value={cocaColaRequiredLevel}
+            onChange={(event) => setCocaColaRequiredLevel(event.target.value)}
+            className="rounded-xl border border-white/15 bg-surface-3 px-4 py-2.5 text-sm text-white transition-colors focus:border-brand focus:outline-none"
+          >
+            <option value="disabled">Disabled — no withdrawal access</option>
+            {LEVEL_THRESHOLDS.map((threshold, index) => (
+              <option key={index} value={index + 1}>
+                {levelLabel(index + 1)} — {threshold.toLocaleString()} active direct referrals
+              </option>
+            ))}
+          </select>
+          {fieldErrors.cocaColaRequiredLevel && (
+            <p className="text-xs text-red-400">{fieldErrors.cocaColaRequiredLevel}</p>
+          )}
+          <p className="text-xs text-white/40">
+            {cocaColaRequiredLevel === "disabled" ? (
+              "Coca-Cola Earning withdrawals will be disabled for all users."
+            ) : (
+              <>
+                Users must reach {levelLabel(Number(cocaColaRequiredLevel))}, which requires{" "}
+                {thresholdForLevel(Number(cocaColaRequiredLevel)).toLocaleString()} active direct
+                referrals.
+              </>
+            )}
+          </p>
+        </div>
       </div>
 
       <Button type="submit" size="md" disabled={submitting} className="self-start">

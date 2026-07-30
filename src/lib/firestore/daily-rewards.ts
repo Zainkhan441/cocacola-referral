@@ -11,6 +11,7 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { typedCollection } from "@/lib/firestore/converter";
+import { pakistanDateKey } from "@/lib/date-utils";
 
 const DAILY_REWARDS_PATH = "dailyRewards";
 const RECENT_DAILY_REWARDS_LIMIT = 10;
@@ -26,9 +27,10 @@ export type DailyRewardDoc = {
   uid: string;
   packageId: string;
   amount: number;
-  // "YYYY-MM-DD" (UTC), informational/display only — the actual one-claim
-  // gate is the UTC calendar-day comparison on users/{uid}.lastDailyClaimAt
-  // (see firestore.rules canClaimDaily/isNewUtcDay), not this string.
+  // "YYYY-MM-DD" (Asia/Karachi), informational/display only — the actual
+  // one-claim gate is the Pakistan calendar-day comparison on
+  // users/{uid}.lastDailyClaimAt (see firestore.rules
+  // canClaimDaily/isNewPakistanDay), not this string.
   rewardDate: string;
   status: DailyRewardStatus;
   createdAt: Timestamp;
@@ -38,8 +40,13 @@ export function dailyRewardsCollection(db: Firestore) {
   return typedCollection<DailyRewardDoc>(db, DAILY_REWARDS_PATH);
 }
 
-export function newDailyRewardRef(db: Firestore) {
-  return doc(dailyRewardsCollection(db));
+// Deterministic id (userId + Pakistan date key + packageId) — this document's
+// mere existence IS the "package daily earning already credited today"
+// idempotency guard (mirrors referralRewards/{depositId}'s pattern): a
+// retried/duplicated completeTaskWatch call can never create a second one,
+// since Firestore rejects a create where the document already exists.
+export function dailyRewardDocRef(db: Firestore, uid: string, dateKey: string, packageId: string) {
+  return doc(dailyRewardsCollection(db), `${uid}_${dateKey}_${packageId}`);
 }
 
 // Requires a composite index (uid asc, createdAt desc) — see firestore.indexes.json.
@@ -69,6 +76,6 @@ export function dailyRewardsPageQuery(
     : query(dailyRewardsCollection(db), orderBy("createdAt", "desc"), limit(DAILY_REWARDS_PAGE_SIZE));
 }
 
-export function todayDateStringUtc(): string {
-  return new Date().toISOString().slice(0, 10);
+export function todayDateStringPakistan(): string {
+  return pakistanDateKey(Date.now());
 }

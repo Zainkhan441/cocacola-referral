@@ -14,3 +14,11 @@ export function validateTaskRewardPerAd(raw: string): string | null {
   if (value <= 0) return "Task reward must be greater than 0.";
   return null;
 }
+
+export function validateMinimumWatchSeconds(raw: string): string | null {
+  const value = parseNumericInput(raw);
+  if (value == null) return "Minimum watch time must be a valid number.";
+  if (value <= 0) return "Minimum watch time must be greater than 0.";
+  if (!Number.isInteger(value)) return "Minimum watch time must be a whole number of seconds.";
+  return null;
+}

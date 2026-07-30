@@ -26,32 +26,32 @@ export async function seedDefaultFaqIfEmpty(db: Firestore): Promise<void> {
     {
       question: "How do I start earning?",
       answer:
-        "Purchase an active package from the Packages page. Every earning path on this platform — daily claims, tasks, and referral/bonus payouts — requires you to have an active, unexpired package.",
+        "Purchase a package from the Packages page. Every earning path on this platform — daily ad tasks and referral/bonus payouts — requires you to currently hold an active package.",
     },
     {
       question: "Why is my deposit or withdrawal still pending?",
       answer:
-        "Every deposit and withdrawal is manually reviewed by an admin before it’s approved and credited. There’s no fixed review time — check the Deposit/Withdrawal history on your Dashboard for the current status.",
+        "Every package purchase and withdrawal is manually reviewed by an admin before it’s approved. There’s no fixed review time — check the Packages page for your purchase status, or the Wallet page’s Withdraw history for withdrawal status.",
     },
     {
       question: "Why can’t I claim my daily earning?",
       answer:
-        "Daily claims are limited to once every 24 hours per account, and require an active, unexpired package with daily claims currently enabled. The Dashboard shows a live countdown until your next claim opens.",
+        "You need to complete all of today’s assigned ad-watch tasks first. Once every required ad is done, your reward — the sum of each ad’s task reward plus your package’s daily earning — unlocks once per Pakistan calendar day, either via the \"Claim Reward\" button or automatically if you’ve enabled Auto Balance.",
     },
     {
       question: "Do I need to buy a package to refer people?",
       answer:
-        "No — anyone can share their referral link and sign people up. But to actually earn a referral reward when someone in your downline purchases a package, you yourself need an active, unexpired package at the moment their purchase is approved.",
+        "No — anyone can share their referral link and sign people up. But to actually earn a referral reward when someone in your downline purchases a package, you yourself need to currently hold an active package at the moment their purchase is approved.",
     },
     {
       question: "What happens to my old package when I buy a new one?",
       answer:
-        "Packages are always fresh: buying a new package immediately replaces your current one. Activation starts at approval time and runs for the new package’s full duration — no remaining time from the old package carries over or stacks.",
+        "Packages are always fresh: buying a new package immediately replaces your current one, activating at approval time. Packages never expire, so there’s no remaining time from the old package to carry over — the new one simply takes over completely.",
     },
     {
-      question: "Why was my task submission rejected?",
+      question: "How do daily ad tasks work?",
       answer:
-        "An admin reviews every task submission before crediting the reward. If your response or proof didn’t satisfy the task’s instructions, it may be rejected — you can still complete other available tasks, or the same one again once eligible (one-time tasks can only be completed once per account; daily tasks reopen after 24 hours).",
+        "Each day you’re assigned a small set of ad-watch tasks sized to your package. Watching an ad to completion (a genuine, real-time watch — no admin review needed) marks that task done. Your assigned tasks reset automatically at Pakistan midnight, and completing all of them unlocks that day’s reward.",
     },
   ];
 
@@ -66,30 +66,30 @@ export async function seedDefaultGuidesIfEmpty(db: Firestore): Promise<void> {
   const byCategory: Record<CmsGuideCategory, Array<{ title: string; body: string }>> = {
     deposit: [
       {
-        title: "1. Choose top-up or package purchase",
-        body: 'From your Dashboard, use "Request a deposit" for a plain wallet top-up (Rs 500–100,000), or go to the Packages page to purchase a specific package — its amount is fixed to that package’s price.',
+        title: "1. Choose a package",
+        body: "Go to the Packages page and choose a package to purchase — its amount is fixed to that package’s price. There is no separate top-up option; every deposit is a package purchase.",
       },
       {
         title: "2. Send payment and submit your reference",
-        body: "Pay via Easypaisa, then submit the request with your transaction/reference ID. A proof screenshot URL is optional for a top-up.",
+        body: "Pay via Easypaisa, then submit the request with your transaction/reference ID and a proof screenshot.",
       },
       {
         title: "3. Wait for admin review",
-        body: 'Your request appears as "pending" in your Deposit history. An admin verifies the payment and approves or rejects it — you can only have one pending package-purchase request at a time.',
+        body: 'Your request appears as "pending" in your Wallet history. An admin verifies the payment and approves or rejects it — you can only have one pending package-purchase request at a time.',
       },
       {
-        title: "4. Funds or package are credited",
-        body: "A top-up adds directly to your wallet balance. A package purchase instead activates that package immediately upon approval, replacing any previous package.",
+        title: "4. Package is activated",
+        body: "Once approved, your package activates immediately, replacing any previous package. Your daily ad tasks and Coca-Cola Earning begin the next Pakistan day.",
       },
     ],
     withdrawal: [
       {
         title: "1. Make sure you qualify",
-        body: "You need an active, unexpired package and at least Rs 500 in your wallet balance to request a withdrawal.",
+        body: "Current Balance withdrawals need at least the platform’s minimum amount. Coca-Cola Earning withdrawals instead require reaching an admin-selected CocaCola Level, based on your active direct referrals — both shown live on the Wallet page.",
       },
       {
-        title: "2. Know your per-request limit",
-        body: "Each package sets its own maximum withdrawal amount per request — shown on your Dashboard’s withdrawal form before you submit.",
+        title: "2. Know the required Level for Coca-Cola Earning",
+        body: "There is no per-package withdrawal limit. The Wallet page shows exactly how many more active direct referrals you need to reach the required Level and unlock Coca-Cola Earning withdrawals.",
       },
       {
         title: "3. Submit your request",
@@ -115,7 +115,7 @@ export async function seedDefaultGuidesIfEmpty(db: Firestore): Promise<void> {
       },
       {
         title: "Staying qualified",
-        body: "To receive a reward at any level, you must have your own active, unexpired, enabled package at the exact moment that downline purchase is approved. If you don’t qualify, that level’s reward is simply skipped — it is not paid to anyone else instead.",
+        body: "To receive a reward at any level, you must currently hold an active package at the exact moment that downline purchase is approved. If you don’t qualify, that level’s reward is simply skipped — it is not paid to anyone else instead.",
       },
       {
         title: "Rates are admin-configured",
@@ -125,19 +125,15 @@ export async function seedDefaultGuidesIfEmpty(db: Firestore): Promise<void> {
     package: [
       {
         title: "Browse packages",
-        body: "The Packages page lists every available package with its price, daily earning rate, withdrawal limits, duration, and features.",
+        body: "The Packages page lists every available package with its price, daily earning rate, daily ad-task count, and referral commission rate.",
       },
       {
-        title: "One active package at a time",
-        body: "You can only have one active package. Purchasing a new one always replaces your current package — “always fresh” activation, never stacked.",
+        title: "One package, forever",
+        body: "You can only have one active package at a time, and packages never expire. Purchasing a new one always replaces your current package — “always fresh” activation, never stacked, never upgraded.",
       },
       {
         title: "What a package unlocks",
-        body: "Your package determines your daily earning amount, your per-request and daily withdrawal limits, and your eligibility for package-restricted tasks and referral/bonus qualification.",
-      },
-      {
-        title: "Expiry",
-        body: "Every package runs for a fixed number of days from activation. Once it expires, daily claims, withdrawals, and referral qualification pause until you renew or upgrade.",
+        body: "Your package determines your daily ad-task count, your daily Coca-Cola Earning amount, and your eligibility for package-restricted tasks and referral/bonus qualification.",
       },
     ],
   };
@@ -156,7 +152,7 @@ export async function seedDefaultRulesIfEmpty(db: Firestore): Promise<void> {
   const defaults: string[] = [
     "One account per person. Do not create multiple accounts to claim multiple referral bonuses or daily earnings.",
     "All deposits and withdrawals must include an accurate transaction/reference ID. Submitting false payment proof may result in account suspension.",
-    "Task submissions must genuinely reflect the task’s instructions. Submitting false or copied proof may result in rejection and account review.",
+    "Ad tasks must be watched genuinely and attentively. Attempting to bypass or automate the watch-time requirement may result in account review.",
     "Referral rewards and salary/level bonuses are paid only for real, organic referrals — not for self-referrals or fabricated team activity.",
     "An account found violating these rules may have its accountStatus set to suspended or banned by an admin, which pauses earning and withdrawal ability.",
     "Package purchases are final once approved and activated; packages are not refundable.",

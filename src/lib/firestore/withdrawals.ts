@@ -1,10 +1,12 @@
 import {
   doc,
+  getAggregateFromServer,
   limit,
   orderBy,
   query,
   serverTimestamp,
   startAfter,
+  sum,
   where,
   type Firestore,
   type Query,
@@ -84,6 +86,22 @@ export function recentWithdrawalsQuery(db: Firestore, uid: string): Query<Withdr
     orderBy("createdAt", "desc"),
     limit(RECENT_WITHDRAWALS_LIMIT),
   );
+}
+
+// Server-side sum of this user's own withdrawal requests in one status —
+// powers the Wallet page's "Approved/Pending/Rejected Withdraw" stat tiles.
+// A single equality filter (plus the uid filter) needs no composite index.
+export async function getWithdrawalTotalByStatus(
+  db: Firestore,
+  uid: string,
+  status: WithdrawalStatus,
+): Promise<number> {
+  const snapshot = await getAggregateFromServer(
+    query(withdrawalsCollection(db), where("uid", "==", uid), where("status", "==", status)),
+    { total: sum("amount") },
+  );
+  // Firestore's sum() resolves to `null`, not 0, when zero documents match.
+  return snapshot.data().total ?? 0;
 }
 
 // --- Admin review queues ---

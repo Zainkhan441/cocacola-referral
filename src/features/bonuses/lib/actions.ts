@@ -7,7 +7,7 @@ import { newBonusClaimRef, pendingBonusClaimDocRef } from "@/lib/firestore/bonus
 import {
   getTeamTotalCount,
   getTeamActiveCount,
-  getTeamLevelCounts,
+  getDirectActiveReferralCount,
 } from "@/lib/firestore/team-members";
 
 function requireDb() {
@@ -61,12 +61,14 @@ export async function submitBonusClaim(input: SubmitBonusClaimInput): Promise<vo
     }
   }
 
-  const [totalTeam, activeTeam, levelCounts] = await Promise.all([
+  const [totalTeam, activeTeam, directReferrals] = await Promise.all([
     getTeamTotalCount(firestore, input.uid),
     getTeamActiveCount(firestore, input.uid),
-    getTeamLevelCounts(firestore, input.uid),
+    // Direct (level 1) referrals who currently hold a package — not every
+    // level-1 registration — so a claim can't be satisfied by referrals who
+    // signed up but never activated a package.
+    getDirectActiveReferralCount(firestore, input.uid),
   ]);
-  const directReferrals = levelCounts[1] ?? 0;
 
   if (directReferrals < tier.requiredDirectReferrals) {
     throw new Error(`This bonus requires at least ${tier.requiredDirectReferrals} direct referral(s).`);

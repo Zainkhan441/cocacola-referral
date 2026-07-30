@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePaymentSettings } from "@/features/payments/hooks/use-payment-settings";
 
-// Shown above every payment-proof form (DepositForm, the package purchase
-// modal) — the actual account a user must pay into before submitting a
-// reference ID and proof screenshot. Reads through usePaymentSettings, so
-// an admin's saved change in Payment Settings appears here immediately on
-// next load, with no separate wiring per page.
+// Shown only inside the package purchase form — the one place a deposit/
+// payment account number ever appears to a user (the old standalone
+// top-up "Deposit Wallet" flow has been retired entirely). The actual
+// account a user must pay into before submitting a reference ID and proof
+// screenshot. Reads through usePaymentSettings, so an admin's saved change
+// in Payment Settings appears here immediately on next load.
 export function EasypaisaPaymentDetails() {
   const { accountTitle, accountNumber, loading } = usePaymentSettings();
   const [copied, setCopied] = useState(false);

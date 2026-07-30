@@ -6,7 +6,11 @@ import type { WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
 // review rows, the withdrawal approval engine, the Financial History
 // ledger) reuses this instead of redeclaring its own copy.
 export const WALLET_FIELD_LABELS: Record<TransactionWallet, string> = {
-  walletBalance: "Deposit Wallet",
+  // The old standalone top-up wallet — retired entirely (deposits only ever
+  // happen as part of a package purchase now). Kept only as a historical
+  // label for any pre-existing transaction/balance that predates the
+  // retirement; never shown as an active, creatable wallet anywhere.
+  walletBalance: "Legacy Wallet Balance",
   currentBalance: "Current Balance",
   cocaColaEarning: "Coca-Cola Earning",
   staffEarning: "Staff Earning",

@@ -10,8 +10,12 @@ import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { WITHDRAWAL_SOURCE_WALLET_LABELS as SOURCE_WALLET_LABELS } from "@/lib/wallet-labels";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
+import { levelLabel, thresholdForLevel } from "@/lib/level";
 
-const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
+// The lowest, most permissive Level — matches the client-side default in
+// features/wallet/lib/validation.ts. A Level NUMBER (1-12), never a raw
+// referral count.
+const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 1;
 
 // Approves a pending withdrawal: deducts the requested source wallet — Current
 // Balance or Coca-Cola Earning, per withdrawal.sourceWallet — from both
@@ -21,14 +25,18 @@ const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 10;
 // submitted) at write time — if either fails, the whole transaction is
 // rejected, so a wallet can never go negative or be double-debited.
 //
-// The Coca-Cola Earning path additionally requires the requester's direct
-// active-referral count to meet the admin-editable required Level (default
-// 10) — Firestore rules can't run the aggregate count query this needs (see
-// firestore.rules withdrawals/{id} create rule), so this is re-verified here
-// with a LIVE getDirectActiveReferralCount() read, BEFORE the money-moving
-// transaction starts, exactly mirroring approveBonusClaim's live team-
-// aggregate re-check. If the requester no longer meets the Level, this
-// throws without crediting anything, so the admin can reject instead.
+// The Coca-Cola Earning path additionally requires the requester's real
+// CocaCola Level (src/lib/level.ts) to reach the admin-selected required
+// Level (1-12), or is rejected outright if withdrawals are disabled
+// (cocaColaRequiredLevel == null) — Firestore rules can't run the aggregate
+// count query this needs (see firestore.rules withdrawals/{id} create
+// rule), so this is re-verified here with a LIVE
+// getDirectActiveReferralCount() read, BEFORE the money-moving transaction
+// starts, exactly mirroring approveBonusClaim's live team-aggregate
+// re-check. The required Level is resolved to its REAL referral threshold
+// via thresholdForLevel() — never compared against the Level number itself.
+// If the requester no longer meets it, this throws without crediting
+// anything, so the admin can reject instead.
 export async function approveWithdrawal(
   withdrawalId: string,
   reviewer: Reviewer,
@@ -50,10 +58,16 @@ export async function approveWithdrawal(
       getDirectActiveReferralCount(db, withdrawalPreCheck.uid),
       getWithdrawalRules(db),
     ]);
-    const requiredLevel = withdrawalRules?.cocaColaRequiredLevel ?? DEFAULT_COCA_COLA_REQUIRED_LEVEL;
-    if (directActiveReferrals < requiredLevel) {
+    const requiredLevel = withdrawalRules
+      ? withdrawalRules.cocaColaRequiredLevel
+      : DEFAULT_COCA_COLA_REQUIRED_LEVEL;
+    if (requiredLevel == null) {
+      throw new Error("Coca-Cola Earning withdrawals are currently disabled. Please reject this withdrawal instead.");
+    }
+    const requiredThreshold = thresholdForLevel(requiredLevel);
+    if (directActiveReferrals < requiredThreshold) {
       throw new Error(
-        `This user no longer meets the required Level ${requiredLevel} (has ${directActiveReferrals} direct active referrals). Please reject this withdrawal instead.`,
+        `This user no longer meets the required ${levelLabel(requiredLevel)} (needs ${requiredThreshold} active direct referrals, has ${directActiveReferrals}). Please reject this withdrawal instead.`,
       );
     }
   }

@@ -9,8 +9,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useTaskRewardSettings } from "@/features/admin/hooks/use-task-reward-settings";
 import { updateTaskRewardSettingsAction } from "@/features/admin/lib/task-reward-actions";
-import { validateTaskRewardPerAd } from "@/features/admin/lib/task-reward-validation";
-import { DEFAULT_TASK_REWARD_PER_AD } from "@/lib/firestore/settings";
+import { validateTaskRewardPerAd, validateMinimumWatchSeconds } from "@/features/admin/lib/task-reward-validation";
+import { DEFAULT_TASK_REWARD_PER_AD, DEFAULT_MINIMUM_WATCH_SECONDS } from "@/lib/firestore/settings";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 
 export function TaskRewardSettingsForm() {
@@ -49,8 +49,12 @@ function TaskRewardSettingsFormFields({ initial, adminUid, adminName }: TaskRewa
   const [rewardPerAd, setRewardPerAd] = useState(
     String(initial?.rewardPerAd ?? DEFAULT_TASK_REWARD_PER_AD),
   );
+  const [minimumWatchSeconds, setMinimumWatchSeconds] = useState(
+    String(initial?.minimumWatchSeconds ?? DEFAULT_MINIMUM_WATCH_SECONDS),
+  );
 
   const [fieldError, setFieldError] = useState<string | undefined>(undefined);
+  const [watchFieldError, setWatchFieldError] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -62,13 +66,15 @@ function TaskRewardSettingsFormFields({ initial, adminUid, adminName }: TaskRewa
     setSuccess(false);
 
     const error = validateTaskRewardPerAd(rewardPerAd) ?? undefined;
+    const watchError = validateMinimumWatchSeconds(minimumWatchSeconds) ?? undefined;
     setFieldError(error);
-    if (error) return;
+    setWatchFieldError(watchError);
+    if (error || watchError) return;
 
     setSubmitting(true);
     try {
       await updateTaskRewardSettingsAction(
-        { rewardPerAd: Number(rewardPerAd.trim()) },
+        { rewardPerAd: Number(rewardPerAd.trim()), minimumWatchSeconds: Number(minimumWatchSeconds.trim()) },
         { adminUid, adminName },
       );
       setSuccess(true);
@@ -101,6 +107,16 @@ function TaskRewardSettingsFormFields({ initial, adminUid, adminName }: TaskRewa
         value={rewardPerAd}
         onChange={(event) => setRewardPerAd(event.target.value)}
         error={fieldError}
+        className="sm:max-w-xs"
+      />
+
+      <FormField
+        label="Minimum watch time (seconds)"
+        type="number"
+        inputMode="numeric"
+        value={minimumWatchSeconds}
+        onChange={(event) => setMinimumWatchSeconds(event.target.value)}
+        error={watchFieldError}
         className="sm:max-w-xs"
       />
 

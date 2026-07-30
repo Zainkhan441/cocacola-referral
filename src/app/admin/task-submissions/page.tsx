@@ -25,8 +25,13 @@ export default function AdminTaskSubmissionsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Task submissions</h1>
-        <p className="text-sm text-white/50">Review user-submitted task completions.</p>
+        <h1 className="text-2xl font-bold text-white">Task submissions (legacy)</h1>
+        <p className="text-sm text-white/50">
+          Historical view of the old, admin-reviewed task submission flow. The current ad-watch
+          task system no longer creates new submissions here — every ad completion is automatic
+          and unlocks the bundled daily reward directly (see the Tasks admin page). This page
+          exists only to resolve any submission still pending from before that change.
+        </p>
       </div>
 
       <StatusFilterTabs options={STATUS_OPTIONS} value={statusFilter} onChange={setStatusFilter} />

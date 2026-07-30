@@ -14,8 +14,9 @@ import { newTransactionRef } from "@/lib/firestore/transactions";
 import {
   getTeamTotalCount,
   getTeamActiveCount,
-  getTeamLevelCounts,
+  getDirectActiveReferralCount,
 } from "@/lib/firestore/team-members";
+import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
@@ -103,14 +104,18 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
     throw new Error("This bonus claim has already been reviewed.");
   }
 
-  const [tierSnap, userSnapForPackage, totalTeam, activeTeam, levelCounts] = await Promise.all([
+  const [tierSnap, userSnapForPackage, totalTeam, activeTeam, directReferrals] = await Promise.all([
     getDoc(bonusTierDocRef(db, claim.tierId)),
     getDoc(userDocRef(db, claim.uid)),
     getTeamTotalCount(db, claim.uid),
     getTeamActiveCount(db, claim.uid),
-    getTeamLevelCounts(db, claim.uid),
+    // Direct (level 1) referrals who currently hold a package — the
+    // authoritative, live re-check at approval time. Never derived from
+    // levelCounts[1] (every level-1 registration, package or not) — that
+    // would let a claim be approved on the strength of referrals who signed
+    // up but never activated a package.
+    getDirectActiveReferralCount(db, claim.uid),
   ]);
-  const directReferrals = levelCounts[1] ?? 0;
 
   if (!tierSnap.exists()) {
     throw new Error("This bonus tier no longer exists.");
@@ -135,6 +140,7 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
   }
 
   const txnRef = newTransactionRef(db);
+  const notificationRef = newSystemNotificationRef(db);
   let capturedAmount = 0;
   let capturedTierName = "";
 
@@ -211,6 +217,16 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
       });
     }
 
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: freshClaim.uid,
+        kind: "bonus",
+        title: "Bonus approved",
+        body: `Your "${freshClaim.tierName}" bonus was approved — ${formatCurrency(freshClaim.bonusAmount)} was added to your Coca-Cola Earning.`,
+      }),
+    );
+
     capturedAmount = freshClaim.bonusAmount;
     capturedTierName = freshClaim.tierName;
   });
@@ -227,6 +243,7 @@ export async function approveBonusClaim(claimId: string, reviewer: Reviewer): Pr
 
 export async function rejectBonusClaim(claimId: string, reviewer: Reviewer): Promise<void> {
   const db = requireDb();
+  const notificationRef = newSystemNotificationRef(db);
 
   await runTransaction(db, async (transaction) => {
     const claimSnap = await transaction.get(bonusClaimDocRef(db, claimId));
@@ -247,6 +264,16 @@ export async function rejectBonusClaim(claimId: string, reviewer: Reviewer): Pro
     // free up the tier for a fresh submission, not leave it permanently
     // stuck "pending" from the lock's perspective.
     transaction.delete(pendingBonusClaimDocRef(db, claim.uid, claim.tierId));
+
+    transaction.set(
+      notificationRef,
+      buildSystemNotificationData({
+        uid: claim.uid,
+        kind: "bonus",
+        title: "Bonus claim rejected",
+        body: `Your "${claim.tierName}" bonus claim was rejected. Please contact support for details.`,
+      }),
+    );
   });
 
   await logActivity(db, {

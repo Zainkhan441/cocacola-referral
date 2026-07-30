@@ -5,8 +5,8 @@ const DAILY_TASK_PROGRESS_PATH = "dailyTaskProgress";
 
 // One document per user, doc id == uid — counts how many DISTINCT tasks
 // this user has completed today, against their own package's
-// packageDailyTaskLimit snapshot. Resets on a real UTC CALENDAR-DAY
-// boundary (isNewUtcDay), matching users/{uid}.lastDailyClaimAt's
+// packageDailyTaskLimit snapshot. Resets on a real Asia/Karachi CALENDAR-DAY
+// boundary (isNewPakistanDay), matching users/{uid}.lastDailyClaimAt's
 // semantics, since this is what gates the bundled reward claim (also
 // calendar-day based) — not a rolling 24h window.
 // Incremented by exactly 1 in the SAME transaction as the taskCompletions

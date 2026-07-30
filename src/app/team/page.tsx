@@ -15,6 +15,7 @@ import { TeamSummaryCards } from "@/features/team/components/team-summary-cards"
 import { TeamLevelBreakdown } from "@/features/team/components/team-level-breakdown";
 import { TeamMemberList } from "@/features/team/components/team-member-list";
 import { LevelProgressCard } from "@/features/team/components/level-progress-card";
+import { LevelLadder } from "@/features/team/components/level-ladder";
 import { StaffEarningSummaryCards } from "@/features/team/components/staff-earning-summary-cards";
 import { DirectReferralList } from "@/features/team/components/direct-referral-list";
 import { ReferralPanel } from "@/features/dashboard/components/referral-panel";
@@ -79,13 +80,25 @@ export default function TeamPage() {
               </div>
               <p className="text-sm text-white/50">
                 Your direct referrals, the commission they&apos;ve generated, and your Level progress.
-                Referral commission is credited straight into your Current Balance — this page is
-                a report of where it came from, not a separate wallet.
+                This page is a reporting view — Staff Earning is not a separate spendable wallet.
+              </p>
+              <p className="mt-2 rounded-xl border border-brand/30 bg-brand/10 px-3 py-2 text-xs font-medium text-brand-light">
+                Referral commissions are credited to your Coca-Cola Earning.
               </p>
             </div>
 
             <LevelProgressCard />
             <StaffEarningSummaryCards />
+
+            <div>
+              <h2 className="text-sm font-semibold text-white">CocaCola Level System</h2>
+              <p className="text-xs text-white/50">
+                All 12 levels, based on your active direct referrals. Prize amounts are set by the
+                admin and start at Rs 0 / inactive until configured.
+              </p>
+            </div>
+            <LevelLadder summary={summary} summaryLoading={summaryLoading} />
+
             <ReferralPanel profile={profile} />
             <DirectReferralList />
 
