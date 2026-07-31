@@ -154,7 +154,21 @@ export function TaskRotationList({
         )}
       </div>
 
-      <div className="flex flex-col items-center gap-1 py-2">
+      {/*
+        The bottle PNG itself has ~9% transparent padding above the bottle
+        and ~13% below it (measured directly from the file's alpha
+        channel), and object-contain letterboxes a bit more on top of that
+        inside each h-56/w-36 (mobile) and h-64/w-40 (desktop) wrapper —
+        together far more invisible space than any small flex `gap` could
+        ever close. So the column gap is dropped to 0 and a per-breakpoint
+        negative margin (space-y) pulls the *wrapper boxes* together
+        instead, closing exactly that measured transparent/letterbox
+        space while leaving a small residual visible gap between the
+        actual bottle shapes (~6px mobile, ~6px desktop) — comfortably
+        short of any overlap, since the negative margin is smaller than
+        the total empty space it's compensating for.
+      */}
+      <div className="flex flex-col items-center py-2 -space-y-[66px] sm:-space-y-[80px]">
         {daily.assignedTasks.map((task) => {
           const completion = daily.completions[task.id];
           const completedToday = Boolean(
