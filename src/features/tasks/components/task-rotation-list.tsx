@@ -154,7 +154,7 @@ export function TaskRotationList({
         )}
       </div>
 
-      <div className="flex flex-col items-center gap-8 py-2">
+      <div className="flex flex-col items-center gap-1 py-2">
         {daily.assignedTasks.map((task) => {
           const completion = daily.completions[task.id];
           const completedToday = Boolean(

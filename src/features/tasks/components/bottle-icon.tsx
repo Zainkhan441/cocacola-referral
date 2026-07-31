@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { CheckCircle2, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // THE single place the bottle artwork is referenced. This now points at
@@ -19,11 +18,14 @@ type BottleIconProps = {
   className?: string;
 };
 
-// All state styling (dimming, highlight ring, completed badge) is applied
-// as CSS layered on top of the single <img> reference above — never baked
-// into the artwork itself — so any future replacement image (whatever its
-// own colors/style) automatically gets correct locked/active/completed
-// treatment with no code change beyond the one constant above.
+// All state styling (dimming, highlight ring, glow) is applied as CSS
+// layered on top of the single <img> reference above — never baked into
+// the artwork itself — so any future replacement image (whatever its own
+// colors/style) automatically gets correct locked/active/completed
+// treatment with no code change beyond the one constant above. Deliberately
+// renders no separate corner badges/marks — locked/completed protection is
+// enforced purely by the caller's disabled/click-guard logic, not by any
+// visible indicator on the bottle itself.
 export function BottleIcon({ state, className }: BottleIconProps) {
   // A brief, one-time scale+glow pulse exactly when this bottle transitions
   // INTO "completed" — never replays on every re-render (e.g. a parent
@@ -98,32 +100,6 @@ export function BottleIcon({ state, className }: BottleIconProps) {
           className="pointer-events-none absolute inset-0 rounded-full ring-2 ring-brand/70 ring-offset-2 ring-offset-surface-2"
           aria-hidden="true"
         />
-      )}
-
-      {state === "completed" && (
-        // Deliberately overlaps the bottle's own top-right corner (not
-        // tucked fully outside it) so it reads immediately as "attached to
-        // this bottle" rather than a separate floating badge — stays
-        // visible until the Pakistan daily reset naturally clears the
-        // underlying completedToday flag upstream. Same position/size as
-        // the locked badge below — the two are mutually exclusive (a
-        // bottle is never both at once), so they can never overlap.
-        <span
-          className={cn(
-            "absolute -right-1.5 -top-1.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white/90 bg-emerald-500 text-white shadow-md transition-transform duration-300 ease-out",
-            justCompleted && "scale-110",
-          )}
-        >
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-        </span>
-      )}
-
-      {state === "locked" && (
-        // Same position/size as the completed tick above — mutually
-        // exclusive states, so the two never render together.
-        <span className="absolute -right-1.5 -top-1.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white/20 bg-surface-3 text-white shadow-md">
-          <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
       )}
     </div>
   );
