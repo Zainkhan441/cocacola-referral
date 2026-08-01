@@ -21,9 +21,13 @@ const STATUS_STYLES: Record<string, string> = {
 // place in this list at all. Sourced directly from the withdrawals
 // collection (not the generic transactions ledger) since a ledger entry is
 // only ever written at approval time — it structurally can't represent a
-// still-pending request.
+// still-pending request. useWithdrawalHistory itself returns every status
+// (shared with the Dashboard's own, unfiltered Withdrawal History card) —
+// the rejected-exclusion is this component's own product decision, applied
+// here via a plain filter rather than baked into the shared hook.
 export function TransactionHistory() {
-  const { withdrawals, loading, error, retry } = useWithdrawalHistory();
+  const { withdrawals: allWithdrawals, loading, error, retry } = useWithdrawalHistory();
+  const withdrawals = allWithdrawals.filter((withdrawal) => withdrawal.status !== "rejected");
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">

@@ -18,6 +18,19 @@ export function formatDate(timestamp: Timestamp): string {
   });
 }
 
+// Same date format as formatDate, plus a time-of-day component — used
+// where the exact moment (not just the day) of an event matters, e.g. the
+// Dashboard's Withdrawal History rows.
+export function formatDateTime(timestamp: Timestamp): string {
+  return timestamp.toDate().toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 // Human-readable byte size for the admin screenshot-management dashboard's
 // storage total — this app's screenshots max out in the hundreds of KB, so
 // only KB/MB precision matters; bytes/GB are never realistically shown.

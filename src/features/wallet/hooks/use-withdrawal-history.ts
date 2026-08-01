@@ -14,12 +14,14 @@ type UseWithdrawalHistoryResult = {
   retry: () => void;
 };
 
-// Live subscription to this account's own withdrawal requests, filtered to
-// pending + approved only — rejected requests are deliberately excluded
-// here (Rejected Withdraw remains visible only as a Wallet summary tile,
-// per product decision). Reads recentWithdrawalsQuery (uid + createdAt,
-// unfiltered by status) rather than a status-filtered query so approvals/
-// rejections update live in place without a second listener.
+// Live subscription to this account's own most recent withdrawal requests,
+// every status included (pending/approved/rejected/paid) — status
+// filtering, where a consumer wants it, is that consumer's own concern
+// (see wallet/components/transaction-history.tsx, which still excludes
+// rejected for the Wallet page's own "Withdraw history" card) rather than
+// baked into this shared hook, so the exact same query/listener can also
+// back the Dashboard's unfiltered Withdrawal History card without a second
+// subscription implementation.
 export function useWithdrawalHistory(): UseWithdrawalHistoryResult {
   const { user, configured } = useAuth();
   const uid = user?.uid;
@@ -42,7 +44,7 @@ export function useWithdrawalHistory(): UseWithdrawalHistoryResult {
     const unsubscribe = onSnapshot(
       recentWithdrawalsQuery(db, uid),
       (snapshot) => {
-        setWithdrawals(snapshot.docs.map((doc) => doc.data()).filter((w) => w.status !== "rejected"));
+        setWithdrawals(snapshot.docs.map((doc) => doc.data()));
         setError(null);
         setLoading(false);
       },

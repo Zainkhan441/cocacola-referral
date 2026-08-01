@@ -17,9 +17,9 @@ import {
   ReferralPanelSkeleton,
 } from "@/features/dashboard/components/referral-panel";
 import {
-  RecentTransactions,
-  RecentTransactionsSkeleton,
-} from "@/features/dashboard/components/recent-transactions";
+  WithdrawalHistory,
+  WithdrawalHistorySkeleton,
+} from "@/features/dashboard/components/withdrawal-history";
 import {
   RecentReferralActivity,
   RecentReferralActivitySkeleton,
@@ -32,12 +32,16 @@ import {
 import { DashboardQuickLinks } from "@/features/dashboard/components/dashboard-quick-links";
 
 // The home overview: balances, package status, referral snapshot, one-tap
-// shortcuts into the daily-use pages, and a recent-activity feed. Milestone
-// 20 moved the full Deposit/Withdraw forms + histories to /wallet and the
-// daily earning ritual + its history to /tasks (formerly a separate
-// /work-room page — retired and merged into Tasks), so this page stays a
-// quick "how am I doing" snapshot instead of a single very long page — no
-// business logic changed, every component below is reused exactly as built.
+// shortcuts into the daily-use pages, and two focused activity feeds
+// (withdrawal history + referral activity — the previous mixed "Recent
+// transactions" feed, which surfaced deposits/task rewards/daily rewards/
+// referral earnings/admin adjustments all in one list, was replaced with a
+// withdrawals-only view per product decision). Milestone 20 moved the full
+// Deposit/Withdraw forms + histories to /wallet and the daily earning
+// ritual + its history to /tasks (formerly a separate /work-room page —
+// retired and merged into Tasks), so this page stays a quick "how am I
+// doing" snapshot instead of a single very long page — no business logic
+// changed, every component below is reused exactly as built.
 export default function DashboardPage() {
   const { user, loading: authLoading, configured } = useAuth();
   const {
@@ -73,7 +77,7 @@ export default function DashboardPage() {
             <PackageStatusCardSkeleton />
             <ReferralPanelSkeleton />
             <div className="grid gap-6 lg:grid-cols-2">
-              <RecentTransactionsSkeleton />
+              <WithdrawalHistorySkeleton />
               <RecentReferralActivitySkeleton />
             </div>
           </div>
@@ -104,7 +108,7 @@ export default function DashboardPage() {
             <ReferralPanel profile={profile} />
 
             <div className="grid gap-6 lg:grid-cols-2">
-              <RecentTransactions />
+              <WithdrawalHistory />
               <RecentReferralActivity />
             </div>
           </>
