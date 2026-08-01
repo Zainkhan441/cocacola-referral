@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
-import { VideoTaskPlayer } from "@/features/tasks/components/video-task-player";
+import { ExternalTaskWatch } from "@/features/tasks/components/external-task-watch";
 import { BottleIcon, type BottleState } from "@/features/tasks/components/bottle-icon";
 import { setAutoBalancePreference } from "@/features/tasks/lib/actions";
 import { isNewPakistanDay } from "@/lib/date-utils";
@@ -41,13 +41,16 @@ type TaskRotationListProps = {
 // own package dailyTaskLimit and the admin-managed task pool), never
 // hardcoded. activeTaskId tracks the single task currently open — it's set
 // ONLY by the user clicking a bottle, and only ever changed again by
-// clicking a DIFFERENT bottle. Completing an ad never resets it, so the
-// just-completed video stays mounted and playable exactly as it was — no
-// auto-close, no auto-pause, no auto-advance to the next task. A bottle
-// that's already completed today never remounts the interactive
-// video/claim machinery when clicked again (see ActiveTaskPanel below) —
-// it only shows a confirmation, so it can never attempt (and fail, or
-// worse, somehow duplicate) a second completion.
+// clicking a DIFFERENT bottle. The ad itself now plays entirely off-site
+// (opened in a new tab the instant an unfinished bottle is first clicked —
+// see the bottle button's onClick below); this page's own panel just keeps
+// tracking Start/Complete for whichever task is active. Completing a task
+// never resets activeTaskId, so its panel stays mounted exactly as it was
+// — no auto-close, no auto-advance to the next task. A bottle that's
+// already completed today never remounts the interactive watch/claim
+// machinery when clicked again (see ActiveTaskPanel below), never reopens
+// a tab for it either — it only shows a confirmation, so it can never
+// attempt (and fail, or worse, somehow duplicate) a second completion.
 export function TaskRotationList({
   uid,
   daily,
@@ -58,12 +61,12 @@ export function TaskRotationList({
   // Captures whether the clicked bottle was ALREADY completed for today at
   // the moment it was opened — frozen for as long as it stays the active
   // bottle, deliberately NOT recomputed live from daily.completions. This
-  // is what keeps VideoTaskPlayer mounted (still playing, still visible)
-  // for the whole time a task stays open, even the instant ITS OWN
-  // completion write lands — the parent's realtime listener updating
-  // daily.completions must never itself swap the video away for a
-  // still-open bottle; only opening a DIFFERENT (or the same, later)
-  // already-done bottle should ever show the plain confirmation instead.
+  // is what keeps ExternalTaskWatch mounted for the whole time a task
+  // stays open, even the instant ITS OWN completion write lands — the
+  // parent's realtime listener updating daily.completions must never
+  // itself swap the panel away for a still-open bottle; only opening a
+  // DIFFERENT (or the same, later) already-done bottle should ever show
+  // the plain confirmation instead.
   const [activeTaskWasAlreadyDone, setActiveTaskWasAlreadyDone] = useState(false);
   const [autoBalance, setAutoBalanceState] = useState(autoBalanceAfterAds);
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -192,6 +195,17 @@ export function TaskRotationList({
               disabled={isLocked}
               onClick={() => {
                 if (isLocked) return;
+                // The video itself now plays entirely off-site — clicking
+                // an unfinished bottle for the first time opens its
+                // admin-configured videoUrl in a new tab (this site stays
+                // open in the background), instead of embedding a player.
+                // Only fires on the transition INTO this task being active
+                // (not on repeat clicks of an already-active bottle), so
+                // reopening the active bottle's own panel never spawns a
+                // second tab.
+                if (!completedToday && activeTaskId !== task.id) {
+                  window.open(task.videoUrl, "_blank", "noopener,noreferrer");
+                }
                 setActiveTaskId(task.id);
                 setActiveTaskWasAlreadyDone(completedToday);
               }}
@@ -234,14 +248,14 @@ type ActiveTaskPanelProps = {
   alreadyDoneBeforeOpening: boolean;
 };
 
-// Deliberately never mounts VideoTaskPlayer for a task that was ALREADY
+// Deliberately never mounts ExternalTaskWatch for a task that was ALREADY
 // completed today before this bottle was opened — reopening a finished
 // bottle only shows a confirmation, never the interactive watch/completion
 // flow, so a completed bottle can structurally never attempt (and
 // therefore never duplicate) a second completion. A task that's genuinely
-// in progress, or completes DURING this viewing, keeps VideoTaskPlayer
-// mounted the whole time — it already handles staying visible/playing
-// after its own completion internally, with no auto-advance.
+// in progress, or completes DURING this viewing, keeps ExternalTaskWatch
+// mounted the whole time — it already handles staying visible after its
+// own completion internally, with no auto-advance.
 function ActiveTaskPanel({ uid, task, minimumWatchSeconds, alreadyDoneBeforeOpening }: ActiveTaskPanelProps) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
@@ -258,12 +272,7 @@ function ActiveTaskPanel({ uid, task, minimumWatchSeconds, alreadyDoneBeforeOpen
       ) : (
         <>
           <p className="whitespace-pre-wrap text-sm text-white/60">{task.instructions}</p>
-          <VideoTaskPlayer
-            uid={uid}
-            taskId={task.id}
-            videoUrl={task.videoUrl}
-            minimumWatchSeconds={minimumWatchSeconds}
-          />
+          <ExternalTaskWatch uid={uid} taskId={task.id} minimumWatchSeconds={minimumWatchSeconds} />
         </>
       )}
     </div>

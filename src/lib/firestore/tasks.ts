@@ -43,9 +43,10 @@ export type TaskDoc = {
   startDate: Timestamp;
   // Null means no end date (runs indefinitely until disabled/archived).
   endDate: Timestamp | null;
-  // Any embeddable video URL (not restricted to a specific host) — the
-  // player uses the real YouTube "ended" event when the host is YouTube,
-  // and a time-based fallback everywhere else. See video-task-player.tsx.
+  // Any http(s) video URL (not restricted to a specific host) — opened in
+  // a new tab when the user clicks the task's bottle; the video plays
+  // entirely off-site (see task-rotation-list.tsx / external-task-watch.tsx),
+  // never embedded on this site.
   videoUrl: string;
   status: TaskStatus;
   createdAt: Timestamp;

@@ -30,12 +30,11 @@ export function validateDateRange(startDate: Date | null, endDate: Date | null):
   return null;
 }
 
-// Any embeddable http(s) video URL is accepted — not restricted to a
-// specific host. The player (video-task-player.tsx) picks the strongest
-// available validation per platform at watch time (YouTube's real "ended"
-// event, or a time-based fallback for everything else), so the admin form
-// only needs to guard against unsafe/malformed URLs, same as every other
-// admin-authored link in this app.
+// Any http(s) video URL is accepted — not restricted to a specific host.
+// It's opened in a new tab (never embedded) when the user clicks the
+// task's bottle, so the admin form only needs to guard against
+// unsafe/malformed URLs, same as every other admin-authored link in this
+// app.
 export function validateVideoUrl(value: string): string | null {
   return validateSafeUrl(value, "Video URL");
 }
