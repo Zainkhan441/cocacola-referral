@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,11 @@ export type BottleState = "locked" | "available" | "active" | "completed";
 type BottleIconProps = {
   state: BottleState;
   className?: string;
+  // Hints Next/Image to load this instance eagerly, at high priority, and
+  // skip lazy-loading — intended for the first bottle in the list only
+  // (every bottle shares the same source image, so only one instance
+  // needs this to get the artwork painted as early as possible).
+  priority?: boolean;
 };
 
 // All state styling (dimming, highlight ring, glow) is applied as CSS
@@ -26,19 +31,28 @@ type BottleIconProps = {
 // renders no separate corner badges/marks — locked/completed protection is
 // enforced purely by the caller's disabled/click-guard logic, not by any
 // visible indicator on the bottle itself.
-export function BottleIcon({ state, className }: BottleIconProps) {
+// Wrapped in memo: TaskRotationList re-renders on every unrelated state
+// change (toggling Auto Balance, a claim error appearing, the active panel
+// updating) — without this, every bottle's <Image>/effects would
+// re-render alongside it even though only one bottle's props (if any)
+// actually changed.
+export const BottleIcon = memo(function BottleIcon({ state, className, priority }: BottleIconProps) {
   // A brief, one-time scale+glow pulse exactly when this bottle transitions
   // INTO "completed" — never replays on every re-render (e.g. a parent
   // refresh, or reopening an already-completed bottle later), only on the
   // real state change, and it never touches any reward/timer/Firestore
-  // logic — purely a CSS class applied for ~280ms.
+  // logic — purely a CSS class applied for ~340ms. Held for slightly LONGER
+  // than the 300ms transition below (not equal to it): removing the class
+  // at exactly (or before) 300ms would start the reverse transition before
+  // the forward one had actually finished reaching its peak scale/glow,
+  // reading as an abrupt cut rather than a smooth reach-then-settle motion.
   const prevStateRef = useRef(state);
   const [justCompleted, setJustCompleted] = useState(false);
 
   useEffect(() => {
     if (state === "completed" && prevStateRef.current !== "completed") {
       setJustCompleted(true);
-      const timeout = setTimeout(() => setJustCompleted(false), 280);
+      const timeout = setTimeout(() => setJustCompleted(false), 340);
       prevStateRef.current = state;
       return () => clearTimeout(timeout);
     }
@@ -68,6 +82,7 @@ export function BottleIcon({ state, className }: BottleIconProps) {
         aria-hidden="true"
         fill
         sizes="160px"
+        priority={priority}
         className={cn(
           // Every state change (active/completed/locked/available) eases
           // through this same 300ms ease-out transition — no sudden jumps.
@@ -87,10 +102,10 @@ export function BottleIcon({ state, className }: BottleIconProps) {
           // locked bottles get no hover treatment at all.
           (state === "available" || state === "active") &&
             "group-hover:scale-105 group-hover:drop-shadow-[0_0_16px_rgba(226,35,26,0.5)]",
-          // The existing one-time completion pulse — stronger and brief,
-          // overrides the soft persistent glow above for ~280ms via
-          // tailwind-merge's normal last-wins conflict resolution, then
-          // settles back into it. Unchanged from before.
+          // The one-time completion pulse — stronger and brief, overrides
+          // the soft persistent glow above for ~340ms via tailwind-merge's
+          // normal last-wins conflict resolution, then settles back into
+          // it over the same 300ms transition.
           justCompleted && "scale-110 drop-shadow-[0_0_22px_rgba(16,185,129,0.85)]",
         )}
       />
@@ -103,4 +118,4 @@ export function BottleIcon({ state, className }: BottleIconProps) {
       )}
     </div>
   );
-}
+});
