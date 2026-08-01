@@ -609,7 +609,7 @@ service cloud.firestore {
         && request.resource.data.userName.size() > 0
         && request.resource.data.status == "pending"
         && request.resource.data.reviewedBy == null
-        && request.resource.data.method == "easypaisa"
+        && request.resource.data.method in ["easypaisa", "jazzcash"]
         && request.resource.data.amount is number
         && request.resource.data.accountName is string
         && request.resource.data.accountName.size() > 0

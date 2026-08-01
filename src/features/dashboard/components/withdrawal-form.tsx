@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
@@ -15,13 +14,16 @@ import {
   validateWithdrawalAmount,
   validateAccountName,
   validateAccountNumber,
+  validateWithdrawalMethod,
   COCA_COLA_MIN_WITHDRAW,
 } from "@/features/wallet/lib/validation";
 import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 import { formatCurrency } from "@/lib/format";
 import { levelLabel } from "@/lib/level";
+import { WITHDRAWAL_METHOD_LABELS } from "@/lib/wallet-labels";
+import { cn } from "@/lib/utils";
 import type { UserDoc } from "@/lib/firestore/users";
-import type { WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
+import { WITHDRAWAL_METHODS, type WithdrawalMethod, type WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
 
 type WithdrawalFormProps = {
   profile: UserDoc;
@@ -156,6 +158,7 @@ type SingleWithdrawalFormProps = {
 };
 
 type FieldErrors = {
+  method?: string;
   amount?: string;
   accountName?: string;
   accountNumber?: string;
@@ -171,6 +174,7 @@ function SingleWithdrawalForm({
 }: SingleWithdrawalFormProps) {
   const { user } = useAuth();
 
+  const [method, setMethod] = useState<WithdrawalMethod | null>(null);
   const [amount, setAmount] = useState("");
   const [accountName, setAccountName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
@@ -188,12 +192,13 @@ function SingleWithdrawalForm({
 
     const parsedAmount = Number(amount);
     const errors: FieldErrors = {
+      method: validateWithdrawalMethod(method) ?? undefined,
       amount: validateWithdrawalAmount(parsedAmount, availableBalance, minAmount) ?? undefined,
       accountName: validateAccountName(accountName) ?? undefined,
       accountNumber: validateAccountNumber(accountNumber) ?? undefined,
     };
     setFieldErrors(errors);
-    if (Object.values(errors).some(Boolean)) return;
+    if (Object.values(errors).some(Boolean) || !method) return;
 
     setSubmitting(true);
     try {
@@ -202,10 +207,12 @@ function SingleWithdrawalForm({
         userName: user.displayName ?? user.email ?? "Unknown",
         amount: parsedAmount,
         sourceWallet,
+        method,
         accountName: accountName.trim(),
         accountNumber: accountNumber.trim(),
       });
       setSuccess(true);
+      setMethod(null);
       setAmount("");
       setAccountName("");
       setAccountNumber("");
@@ -219,13 +226,7 @@ function SingleWithdrawalForm({
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">{title}</h2>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
-          <Landmark className="h-3.5 w-3.5" aria-hidden="true" />
-          Easypaisa
-        </span>
-      </div>
+      <h2 className="text-sm font-semibold text-white">{title}</h2>
 
       {blockedReason ? (
         <div className="flex flex-col gap-3">
@@ -259,6 +260,29 @@ function SingleWithdrawalForm({
                 Withdrawal request submitted. We’ll review it shortly.
               </Alert>
             )}
+
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-white/70">Withdrawal method</span>
+              <div className="grid grid-cols-2 gap-2">
+                {WITHDRAWAL_METHODS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setMethod(option)}
+                    aria-pressed={method === option}
+                    className={cn(
+                      "rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors",
+                      method === option
+                        ? "border-brand bg-brand/10 text-white"
+                        : "border-white/15 bg-surface-3 text-white/60 hover:border-white/25 hover:text-white/80",
+                    )}
+                  >
+                    {WITHDRAWAL_METHOD_LABELS[option]}
+                  </button>
+                ))}
+              </div>
+              {fieldErrors.method && <p className="text-xs text-red-400">{fieldErrors.method}</p>}
+            </div>
 
             <FormField
               label="Amount (Rs)"
@@ -299,6 +323,7 @@ export function WithdrawalFormSkeleton() {
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-6">
       <Skeleton className="h-4 w-40" />
+      <Skeleton className="h-10 w-full" />
       <Skeleton className="h-10 w-full" />
       <Skeleton className="h-10 w-full" />
       <Skeleton className="h-10 w-full" />

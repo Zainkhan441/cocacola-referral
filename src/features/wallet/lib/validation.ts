@@ -8,8 +8,17 @@ export const DEFAULT_COCA_COLA_REQUIRED_LEVEL = 1;
 // Level is admin-editable, per product decision).
 export const COCA_COLA_MIN_WITHDRAW = 500;
 
-// Pakistani mobile-wallet number, e.g. Easypaisa (03XXXXXXXXX).
+// Pakistani mobile-wallet number, e.g. Easypaisa/JazzCash (03XXXXXXXXX) —
+// both use the same 11-digit mobile-number format, so one pattern covers
+// either method.
 const ACCOUNT_NUMBER_PATTERN = /^03\d{9}$/;
+
+export function validateWithdrawalMethod(value: string | null): string | null {
+  if (value !== "easypaisa" && value !== "jazzcash") {
+    return "Select a withdrawal method.";
+  }
+  return null;
+}
 
 export function validateReferenceId(value: string): string | null {
   if (!value.trim()) return "Transaction/reference ID is required.";

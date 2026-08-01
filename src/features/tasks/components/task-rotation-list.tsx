@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -8,9 +8,36 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { ExternalTaskWatch } from "@/features/tasks/components/external-task-watch";
 import { BottleIcon, type BottleState } from "@/features/tasks/components/bottle-icon";
-import { setAutoBalancePreference } from "@/features/tasks/lib/actions";
+import { setAutoBalancePreference, startTaskWatch } from "@/features/tasks/lib/actions";
 import { isNewPakistanDay } from "@/lib/date-utils";
+import type { TaskDoc } from "@/lib/firestore/tasks";
+import type { TaskCompletionDoc } from "@/lib/firestore/task-completions";
 import type { useDailyTasks } from "@/features/tasks/hooks/use-daily-tasks";
+
+// Warms the connection to an external video's own origin the moment intent
+// is signaled (hover/focus, and again defensively on click/tap for
+// touch devices that never fire a hover event) — a preconnect is just a
+// DNS+TCP+TLS handshake, not a resource fetch, so it can never itself
+// waste bandwidth even if the user never actually opens that tab. Guarded
+// by a module-level Set (not a DOM query) so repeatedly hovering the same
+// bottle never re-inserts the same <link>, and origins for admin-configured
+// videoUrls that don't resolve to a valid URL are silently skipped.
+const preconnectedVideoOrigins = new Set<string>();
+function preconnectToVideoOrigin(videoUrl: string) {
+  if (typeof document === "undefined") return;
+  let origin: string;
+  try {
+    origin = new URL(videoUrl).origin;
+  } catch {
+    return;
+  }
+  if (preconnectedVideoOrigins.has(origin)) return;
+  preconnectedVideoOrigins.add(origin);
+  const link = document.createElement("link");
+  link.rel = "preconnect";
+  link.href = origin;
+  document.head.appendChild(link);
+}
 
 type TaskRotationListProps = {
   uid: string;
@@ -70,6 +97,28 @@ export function TaskRotationList({
   const [activeTaskWasAlreadyDone, setActiveTaskWasAlreadyDone] = useState(false);
   const [autoBalance, setAutoBalanceState] = useState(autoBalanceAfterAds);
   const [toggleError, setToggleError] = useState<string | null>(null);
+  // Per-task optimistic "just completed" timestamps (ms). ExternalTaskWatch
+  // already knows the instant its own completeTaskWatch() call resolves —
+  // this lets that instant flip the BOTTLE's own icon (green glow) too,
+  // instead of waiting for daily.completions' onSnapshot echo to arrive
+  // and trigger a second render. Storing the timestamp (not just a
+  // taskId->true flag) and re-checking it against isNewPakistanDay in
+  // bottleRows below is what makes this safe to never explicitly clear:
+  // once a Pakistan day passes, the same check that already resets
+  // completedToday from real Firestore data also stops honoring a stale
+  // optimistic entry from the previous day.
+  const [optimisticCompletions, setOptimisticCompletions] = useState<Record<string, number>>({});
+  const handleTaskCompleted = useCallback((taskId: string) => {
+    setOptimisticCompletions((prev) => ({ ...prev, [taskId]: Date.now() }));
+  }, []);
+  // Fires ~750ms after ExternalTaskWatch's own completeTaskWatch() call
+  // resolves — collapses THIS bottle's panel back to nothing, leaving only
+  // its now-green bottle behind. Guarded to only clear activeTaskId if it
+  // still points at the task that just finished, in case the user already
+  // switched to a different bottle before this delayed callback fires.
+  const handleCollapseActiveTask = useCallback((taskId: string) => {
+    setActiveTaskId((current) => (current === taskId ? null : current));
+  }, []);
   // Shared with useDailyTasks — a live Pakistan-time clock, not a stale
   // mount-time snapshot, so a completion from before a midnight rollover
   // (tab left open) correctly stops showing as "completed today" and the
@@ -87,6 +136,68 @@ export function TaskRotationList({
     }
   }
 
+  // Derived once per actual data change, not on every re-render of this
+  // component (e.g. toggling Auto Balance, a claim error appearing, or any
+  // other local state change unrelated to the bottles themselves) — before
+  // this, every one of those re-renders recomputed completedToday/isLocked/
+  // state for every assigned task from scratch. Declared before the
+  // "no tasks assigned" early return below so this Hook call is never
+  // conditional.
+  const bottleRows = useMemo(
+    () =>
+      daily.assignedTasks.map((task) => {
+        const completion = daily.completions[task.id];
+        const optimisticAtMs = optimisticCompletions[task.id];
+        const completedToday =
+          Boolean(completion?.completedAt && !isNewPakistanDay(completion.completedAt.toMillis(), now)) ||
+          Boolean(optimisticAtMs != null && !isNewPakistanDay(optimisticAtMs, now));
+        const isActive = activeTaskId === task.id;
+        // "Locked" reuses the EXACT SAME live eligibility check
+        // useDailyTasks already computes to decide what to assign
+        // (task.status === "active", within its date window, package-
+        // eligible) — never a new/invented rule. A task can only reach
+        // this state if it was eligible when assigned today but has since
+        // become unavailable (e.g. an admin disabled it, or its date
+        // window closed) and hasn't already been completed.
+        const isLocked = !completedToday && !daily.eligibleActiveTaskIds.includes(task.id);
+        const state: BottleState = completedToday ? "completed" : isLocked ? "locked" : isActive ? "active" : "available";
+        return { task, completedToday, isActive, isLocked, state };
+      }),
+    [daily.assignedTasks, daily.completions, daily.eligibleActiveTaskIds, activeTaskId, now, optimisticCompletions],
+  );
+
+  // Stable across re-renders unless uid or the active task itself changes
+  // (toggling Auto Balance, a claim error appearing, etc. never recreates
+  // this) — passed to the memoized BottleButton below so those unrelated
+  // re-renders don't defeat its memoization via a fresh onSelect reference
+  // every time.
+  const handleBottleSelect = useCallback(
+    (task: TaskDoc, completedToday: boolean, isLocked: boolean) => {
+      if (isLocked) return;
+      // The video plays entirely off-site — clicking an unfinished bottle
+      // for the first time immediately records the authoritative Firestore
+      // Start (fired synchronously, in this same click, so the
+      // window.open call right after it still carries the user gesture
+      // needed to bypass popup blockers) and opens its admin-configured
+      // videoUrl in a new tab. Only fires on the transition INTO this task
+      // being active (not on repeat clicks of an already-active bottle),
+      // so reopening the active bottle's own panel never re-starts or
+      // reopens a second tab for it.
+      if (!completedToday && activeTaskId !== task.id) {
+        // Defensive: covers touch devices, which generally never fire a
+        // hover event before a tap — BottleButton's own onMouseEnter/
+        // onFocus already does this ahead of time for pointer/keyboard
+        // users, and the Set guard inside makes a repeat call here free.
+        preconnectToVideoOrigin(task.videoUrl);
+        void startTaskWatch(uid, task.id);
+        window.open(task.videoUrl, "_blank", "noopener,noreferrer");
+      }
+      setActiveTaskId(task.id);
+      setActiveTaskWasAlreadyDone(completedToday);
+    },
+    [uid, activeTaskId],
+  );
+
   if (daily.assignedTasks.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-white/10 py-10 text-center">
@@ -95,7 +206,36 @@ export function TaskRotationList({
     );
   }
 
-  const activeTask = daily.assignedTasks.find((task) => task.id === activeTaskId) ?? null;
+  // Restores the correct in-progress bottle's panel after a page refresh
+  // (activeTaskId is plain local state — it does NOT survive a reload on
+  // its own). A render-time state adjustment (React's own recommended
+  // pattern for "derive state from other state/props changing" — see
+  // useResetOnKeyChange for the same technique elsewhere in this app),
+  // not an effect: it naturally re-evaluates on every render, so it
+  // self-heals even if this runs before every assigned task's completion
+  // listener has delivered its first snapshot, without needing its own
+  // dependency array. Excludes any task already known-complete via the
+  // optimistic map (see handleTaskCompleted) even if the real Firestore
+  // completion doc hasn't echoed that yet — without this, the exact task
+  // that just auto-collapsed could immediately reopen itself. The timer
+  // itself is never reset here — ExternalTaskWatch always recomputes "how
+  // much time remains" fresh from the real startedAt, so resuming after a
+  // refresh is inherently correct with no extra bookkeeping.
+  if (activeTaskId == null) {
+    const inProgressTask = daily.assignedTasks.find((task) => {
+      if (optimisticCompletions[task.id] != null) return false;
+      const completion = daily.completions[task.id];
+      return (
+        completion?.startedAt != null &&
+        completion.completedAt == null &&
+        !isNewPakistanDay(completion.startedAt.toMillis(), now)
+      );
+    });
+    if (inProgressTask) {
+      setActiveTaskId(inProgressTask.id);
+      setActiveTaskWasAlreadyDone(false);
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-sm flex-col gap-6">
@@ -163,70 +303,64 @@ export function TaskRotationList({
         channel), and object-contain letterboxes a bit more on top of that
         inside each h-56/w-36 (mobile) and h-64/w-40 (desktop) wrapper —
         together far more invisible space than any small flex `gap` could
-        ever close. So the column gap is dropped to 0 and a per-breakpoint
-        negative margin (space-y) pulls the *wrapper boxes* together
-        instead, closing exactly that measured transparent/letterbox
-        space while leaving a small residual visible gap between the
-        actual bottle shapes (~6px mobile, ~6px desktop) — comfortably
-        short of any overlap, since the negative margin is smaller than
-        the total empty space it's compensating for.
+        ever close. Two consecutive PLAIN bottles keep the tight negative
+        top-margin pull that closes that transparent space (~6px mobile,
+        ~6px desktop residual gap). The one bottle with its OWN panel open
+        breaks that assumption — the wrapper's real bottom edge is now the
+        panel's card, which has no such transparent padding — so the gap
+        immediately AFTER an open panel uses a normal positive margin
+        instead, sized for real card-to-bottle breathing room. Each bottle
+        + its own conditional panel live in one wrapper, keyed by task.id,
+        so React mounts/unmounts a panel's whole timer/listener subtree
+        exactly when that specific bottle becomes/stops being active —
+        never any other bottle's.
       */}
-      <div className="flex flex-col items-center py-2 -space-y-[66px] sm:-space-y-[80px]">
-        {daily.assignedTasks.map((task) => {
+      <div className="flex flex-col items-center py-2">
+        {bottleRows.map(({ task, completedToday, isActive, isLocked, state }, index) => {
+          const panelOpenHere = activeTaskId === task.id;
+          const previousPanelOpen = index > 0 && activeTaskId === bottleRows[index - 1].task.id;
           const completion = daily.completions[task.id];
-          const completedToday = Boolean(
-            completion?.completedAt && !isNewPakistanDay(completion.completedAt.toMillis(), now),
-          );
-          const isActive = activeTaskId === task.id;
-          // "Locked" reuses the EXACT SAME live eligibility check
-          // useDailyTasks already computes to decide what to assign
-          // (task.status === "active", within its date window, package-
-          // eligible) — never a new/invented rule. A task can only reach
-          // this state if it was eligible when assigned today but has
-          // since become unavailable (e.g. an admin disabled it, or its
-          // date window closed) and hasn't already been completed.
-          const isLocked = !completedToday && !daily.eligibleActiveTaskIds.includes(task.id);
-          const state: BottleState = completedToday ? "completed" : isLocked ? "locked" : isActive ? "active" : "available";
-
           return (
-            <button
+            <div
               key={task.id}
-              type="button"
-              disabled={isLocked}
-              onClick={() => {
-                if (isLocked) return;
-                // The video itself now plays entirely off-site — clicking
-                // an unfinished bottle for the first time opens its
-                // admin-configured videoUrl in a new tab (this site stays
-                // open in the background), instead of embedding a player.
-                // Only fires on the transition INTO this task being active
-                // (not on repeat clicks of an already-active bottle), so
-                // reopening the active bottle's own panel never spawns a
-                // second tab.
-                if (!completedToday && activeTaskId !== task.id) {
-                  window.open(task.videoUrl, "_blank", "noopener,noreferrer");
-                }
-                setActiveTaskId(task.id);
-                setActiveTaskWasAlreadyDone(completedToday);
-              }}
-              className="group flex w-full flex-col items-center gap-3 rounded-2xl p-2 transition-colors duration-300 ease-out hover:enabled:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:cursor-not-allowed"
-              aria-pressed={isActive}
-              aria-label={isLocked ? "Task locked" : `${task.title}${completedToday ? " — completed for today" : ""}`}
+              className={cn(
+                "flex w-full flex-col items-center",
+                index === 0 ? undefined : previousPanelOpen ? "mt-6" : "-mt-[66px] sm:-mt-[80px]",
+              )}
             >
-              <BottleIcon state={state} className="h-56 w-36 sm:h-64 sm:w-40" />
-            </button>
+              <BottleButton
+                task={task}
+                completedToday={completedToday}
+                isActive={isActive}
+                isLocked={isLocked}
+                state={state}
+                // Above-the-fold hint for the first bottle only — every
+                // bottle shares the same source image, so this is the one
+                // that matters for how quickly the page's first meaningful
+                // paint shows real artwork instead of nothing.
+                priority={index === 0}
+                onSelect={handleBottleSelect}
+              />
+              {panelOpenHere && (
+                <div className="mt-3 w-full">
+                  <ActiveTaskPanel
+                    uid={uid}
+                    task={task}
+                    minimumWatchSeconds={minimumWatchSeconds}
+                    alreadyDoneBeforeOpening={activeTaskWasAlreadyDone}
+                    completion={completion}
+                    now={now}
+                    onCompleted={handleTaskCompleted}
+                    onCollapse={handleCollapseActiveTask}
+                  />
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
 
-      {activeTask ? (
-        <ActiveTaskPanel
-          uid={uid}
-          task={activeTask}
-          minimumWatchSeconds={minimumWatchSeconds}
-          alreadyDoneBeforeOpening={activeTaskWasAlreadyDone}
-        />
-      ) : (
+      {activeTaskId == null && (
         <div className="rounded-2xl border border-dashed border-white/10 py-8 text-center">
           <p className="text-sm text-white/50">Tap a bottle above to start watching.</p>
         </div>
@@ -234,6 +368,60 @@ export function TaskRotationList({
     </div>
   );
 }
+
+type BottleButtonProps = {
+  task: TaskDoc;
+  completedToday: boolean;
+  isActive: boolean;
+  isLocked: boolean;
+  state: BottleState;
+  priority: boolean;
+  onSelect: (task: TaskDoc, completedToday: boolean, isLocked: boolean) => void;
+};
+
+// Memoized: TaskRotationList re-renders on every unrelated state change
+// (toggling Auto Balance, a claim error appearing, the active panel
+// updating) — without this, every bottle button in the list would
+// re-render alongside it even though only one row's props (if any)
+// actually changed. Relies on handleBottleSelect (the `onSelect` prop)
+// being referentially stable across those same unrelated re-renders (see
+// its useCallback above) — otherwise this memoization would be silently
+// defeated by a fresh callback on every render.
+const BottleButton = memo(function BottleButton({
+  task,
+  completedToday,
+  isActive,
+  isLocked,
+  state,
+  priority,
+  onSelect,
+}: BottleButtonProps) {
+  // Warms the connection to this task's own video origin the moment intent
+  // is signaled — a mouse hover or keyboard focus — well before the actual
+  // click/tap, so by the time window.open() fires the new tab's own
+  // navigation has less connection-setup latency left to pay. Never fires
+  // for a locked or already-completed bottle, since neither will open a
+  // tab when selected.
+  const handleIntentSignal = useCallback(() => {
+    if (isLocked || completedToday) return;
+    preconnectToVideoOrigin(task.videoUrl);
+  }, [isLocked, completedToday, task.videoUrl]);
+
+  return (
+    <button
+      type="button"
+      disabled={isLocked}
+      onClick={() => onSelect(task, completedToday, isLocked)}
+      onMouseEnter={handleIntentSignal}
+      onFocus={handleIntentSignal}
+      className="group flex w-full flex-col items-center gap-3 rounded-2xl p-2 transition-colors duration-300 ease-out hover:enabled:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand disabled:cursor-not-allowed"
+      aria-pressed={isActive}
+      aria-label={isLocked ? "Task locked" : `${task.title}${completedToday ? " — completed for today" : ""}`}
+    >
+      <BottleIcon state={state} priority={priority} className="h-56 w-36 sm:h-64 sm:w-40" />
+    </button>
+  );
+});
 
 type ActiveTaskPanelProps = {
   uid: string;
@@ -246,6 +434,28 @@ type ActiveTaskPanelProps = {
   // instant its own completion write lands, undoing "video stays visible
   // after completion").
   alreadyDoneBeforeOpening: boolean;
+  // The live taskCompletions/{uid}_{taskId} doc for this task, read
+  // straight from daily.completions (the one onSnapshot listener
+  // use-daily-tasks.ts already keeps open for every assigned task) and
+  // passed down to ExternalTaskWatch — never a second subscription.
+  completion: TaskCompletionDoc | undefined;
+  // Shared live Pakistan-time clock (see the `now` comment at the top of
+  // TaskRotationList) — passed down so ExternalTaskWatch never calls
+  // Date.now() directly while rendering.
+  now: number;
+  // Called the instant ExternalTaskWatch's own completeTaskWatch() call
+  // resolves (or fails because it was already completed elsewhere) — lets
+  // the BOTTLE icon in the list above flip to "completed" immediately,
+  // without waiting for daily.completions' onSnapshot echo to arrive and
+  // trigger a second render. Referentially stable (see handleTaskCompleted
+  // in TaskRotationList), so it never defeats this panel's own memoization.
+  onCompleted: (taskId: string) => void;
+  // Called ~750ms after a genuine, live completion — collapses THIS
+  // bottle's own panel back to nothing (see handleCollapseActiveTask).
+  // Never fires for a bottle reopened after it was already completed
+  // earlier (alreadyDoneBeforeOpening below skips mounting ExternalTaskWatch
+  // entirely in that case, so there's nothing to collapse from).
+  onCollapse: (taskId: string) => void;
 };
 
 // Deliberately never mounts ExternalTaskWatch for a task that was ALREADY
@@ -256,7 +466,23 @@ type ActiveTaskPanelProps = {
 // in progress, or completes DURING this viewing, keeps ExternalTaskWatch
 // mounted the whole time — it already handles staying visible after its
 // own completion internally, with no auto-advance.
-function ActiveTaskPanel({ uid, task, minimumWatchSeconds, alreadyDoneBeforeOpening }: ActiveTaskPanelProps) {
+//
+// Memoized: its own props (task, completion, now, ...) are referentially
+// stable unless something about THIS specific active task actually
+// changed, so there's no reason for this panel — the most expensive
+// subtree here, via ExternalTaskWatch's timers/listeners — to re-render
+// just because the Auto Balance toggle or a claim error changed elsewhere
+// on the page.
+const ActiveTaskPanel = memo(function ActiveTaskPanel({
+  uid,
+  task,
+  minimumWatchSeconds,
+  alreadyDoneBeforeOpening,
+  completion,
+  now,
+  onCompleted,
+  onCollapse,
+}: ActiveTaskPanelProps) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-surface-2 p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
@@ -272,9 +498,17 @@ function ActiveTaskPanel({ uid, task, minimumWatchSeconds, alreadyDoneBeforeOpen
       ) : (
         <>
           <p className="whitespace-pre-wrap text-sm text-white/60">{task.instructions}</p>
-          <ExternalTaskWatch uid={uid} taskId={task.id} minimumWatchSeconds={minimumWatchSeconds} />
+          <ExternalTaskWatch
+            uid={uid}
+            taskId={task.id}
+            minimumWatchSeconds={minimumWatchSeconds}
+            completion={completion}
+            now={now}
+            onCompleted={() => onCompleted(task.id)}
+            onCollapse={() => onCollapse(task.id)}
+          />
         </>
       )}
     </div>
   );
-}
+});

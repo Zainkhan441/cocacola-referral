@@ -18,10 +18,14 @@ import { typedCollection } from "@/lib/firestore/converter";
 const WITHDRAWALS_PATH = "withdrawals";
 const RECENT_WITHDRAWALS_LIMIT = 10;
 export const WITHDRAWALS_PAGE_SIZE = 20;
-const WITHDRAWAL_METHOD = "easypaisa" as const;
 
 export type WithdrawalStatus = "pending" | "approved" | "rejected" | "paid";
-export type WithdrawalMethod = typeof WITHDRAWAL_METHOD;
+// Every withdrawal ever created has always had a real, populated `method`
+// (it was a required field even when only Easypaisa existed) — there is no
+// "missing method" case in this app's real data, so no legacy/unknown
+// fallback value is needed here.
+export type WithdrawalMethod = "easypaisa" | "jazzcash";
+export const WITHDRAWAL_METHODS: readonly WithdrawalMethod[] = ["easypaisa", "jazzcash"];
 // Which of the two independently-withdrawable wallets this request draws
 // from — Staff Earning has no withdrawal path (see users/{uid}.staffEarning).
 export type WithdrawalSourceWallet = "current_balance" | "coca_cola_earning";
@@ -143,6 +147,7 @@ type CreateWithdrawalRequestInput = {
   userName: string;
   amount: number;
   sourceWallet: WithdrawalSourceWallet;
+  method: WithdrawalMethod;
   accountName: string;
   accountNumber: string;
 };
@@ -156,7 +161,7 @@ export function buildWithdrawalData(input: CreateWithdrawalRequestInput) {
     userName: input.userName,
     amount: input.amount,
     sourceWallet: input.sourceWallet,
-    method: WITHDRAWAL_METHOD,
+    method: input.method,
     accountName: input.accountName,
     accountNumber: input.accountNumber,
     status: "pending" as const,

@@ -5,6 +5,7 @@ import {
   buildWithdrawalData,
   newWithdrawalRef,
   pendingWithdrawalFieldFor,
+  type WithdrawalMethod,
   type WithdrawalSourceWallet,
 } from "@/lib/firestore/withdrawals";
 import { userDocRef } from "@/lib/firestore/users";
@@ -69,6 +70,7 @@ type SubmitWithdrawalInput = {
   userName: string;
   amount: number;
   sourceWallet: WithdrawalSourceWallet;
+  method: WithdrawalMethod;
   accountName: string;
   accountNumber: string;
 };

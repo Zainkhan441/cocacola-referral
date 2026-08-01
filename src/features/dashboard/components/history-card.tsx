@@ -85,6 +85,10 @@ export function HistoryCardSkeleton({ titleWidth = "w-36" }: { titleWidth?: stri
 type HistoryListRowProps = {
   title: string;
   subtitle: string;
+  // Optional extra line rendered below the subtitle (e.g. a withdrawal
+  // method badge) — existing callers that don't pass this render exactly
+  // as before.
+  meta?: ReactNode;
   amount: number;
   direction: "in" | "out";
   status: string;
@@ -94,6 +98,7 @@ type HistoryListRowProps = {
 export function HistoryListRow({
   title,
   subtitle,
+  meta,
   amount,
   direction,
   status,
@@ -104,6 +109,7 @@ export function HistoryListRow({
       <div className="flex min-w-0 flex-col gap-0.5">
         <p className="truncate text-sm font-medium text-white">{title}</p>
         <p className="truncate text-xs text-white/50">{subtitle}</p>
+        {meta}
       </div>
       <div className="flex flex-shrink-0 flex-col items-end gap-1">
         <p

@@ -10,12 +10,18 @@ import { userDocRef, type UserDoc } from "@/lib/firestore/users";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { approveWithdrawal, rejectWithdrawal } from "@/features/admin/lib/withdrawal-actions";
 import { WITHDRAWAL_SOURCE_WALLET_LABELS as SOURCE_WALLET_LABELS } from "@/lib/wallet-labels";
+import { WithdrawalMethodBadge } from "@/features/wallet/components/withdrawal-method-badge";
 import type { WithdrawalStatus } from "@/lib/firestore/withdrawals";
 import type { WithdrawalWithId } from "@/features/admin/hooks/use-admin-withdrawals";
 
+// Aligned to the same Pending(amber)/Success(emerald)/Rejected(red) colors
+// used on the user-facing withdrawal history views, for visual consistency
+// across the app — the label text here stays the literal status word
+// (not "Success"), since an admin reviewing a queue wants the precise
+// technical state, not the friendlier consumer-facing translation.
 const STATUS_STYLES: Record<WithdrawalStatus, string> = {
   pending: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  approved: "border-sky-500/30 bg-sky-500/10 text-sky-300",
+  approved: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
   rejected: "border-red-500/30 bg-red-500/10 text-red-300",
   paid: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
 };
@@ -100,6 +106,7 @@ export function WithdrawalReviewRow({ withdrawal, onReviewed }: WithdrawalReview
           <p className="text-xs font-medium text-brand-light">
             From {SOURCE_WALLET_LABELS[withdrawal.sourceWallet]}
           </p>
+          <WithdrawalMethodBadge method={withdrawal.method} />
           {liveProfile && (
             <p className="text-xs text-white/40">
               Live balances — Current Balance: {formatCurrency(liveProfile.currentBalance)} · Coca-Cola
