@@ -21,6 +21,7 @@ import { getAuthErrorMessage } from "@/features/auth/lib/auth-errors";
 import { formatCurrency } from "@/lib/format";
 import { levelLabel } from "@/lib/level";
 import { WITHDRAWAL_METHOD_LABELS } from "@/lib/wallet-labels";
+import { WithdrawalMethodLogo } from "@/features/wallet/components/withdrawal-method-badge";
 import { cn } from "@/lib/utils";
 import type { UserDoc } from "@/lib/firestore/users";
 import { WITHDRAWAL_METHODS, type WithdrawalMethod, type WithdrawalSourceWallet } from "@/lib/firestore/withdrawals";
@@ -271,12 +272,13 @@ function SingleWithdrawalForm({
                     onClick={() => setMethod(option)}
                     aria-pressed={method === option}
                     className={cn(
-                      "rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors",
+                      "flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors",
                       method === option
                         ? "border-brand bg-brand/10 text-white"
                         : "border-white/15 bg-surface-3 text-white/60 hover:border-white/25 hover:text-white/80",
                     )}
                   >
+                    <WithdrawalMethodLogo method={option} />
                     {WITHDRAWAL_METHOD_LABELS[option]}
                   </button>
                 ))}
