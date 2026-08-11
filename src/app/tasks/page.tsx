@@ -102,9 +102,17 @@ export default function TasksPage() {
             )}
 
             {hasQualifyingPackage && !daily.error && (tasksLoading || daily.loading) && (
-              <div className="flex flex-col gap-4">
+              // Bottle-shaped, not generic rectangles: TaskRotationList
+              // renders a centered column of h-56/w-36 (sm:h-64/w-40)
+              // circular bottles with a tight negative-margin gap between
+              // them — a couple of generic h-40 boxes here used to be a
+              // very different height/shape, causing a visible layout jump
+              // the instant real content replaced this skeleton. Matching
+              // its footprint closely (even though the real bottle count
+              // isn't known yet) keeps that transition close to seamless.
+              <div className="mx-auto flex w-full max-w-sm flex-col items-center gap-2 py-2">
                 {Array.from({ length: 2 }).map((_, index) => (
-                  <Skeleton key={index} className="h-40 w-full rounded-2xl" />
+                  <Skeleton key={index} className="h-56 w-36 rounded-full sm:h-64 sm:w-40" />
                 ))}
               </div>
             )}

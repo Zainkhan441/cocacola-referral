@@ -94,24 +94,33 @@ export function computeTodaysAssignment({
 
   while (assigned.length < dailyTaskLimit) {
     if (pool.length === 0) {
-      if (remainingPool.size === 0 && completedThisCycle.size === 0) {
+      if (eligibleActiveTaskIds.length === 0) {
         // No eligible tasks exist at all — nothing to assign.
         break;
       }
-      // Pool fully drawn down for today's assignment — if there's nothing
-      // left in the cycle's remaining pool at all, that means every
-      // eligible task has already been completed this cycle: reshuffle.
       if (remainingPool.size === 0) {
+        // Every eligible task has already been completed this cycle:
+        // reshuffle into a fresh cycle and keep drawing from the full
+        // eligible set.
         cycleId += 1;
         completedThisCycle = new Set();
         remainingPool = new Set(eligibleActiveTaskIds);
-        pool = shuffle([...remainingPool].filter((id) => eligibleSet.has(id)));
+        pool = shuffle([...remainingPool].filter((id) => eligibleSet.has(id) && !assigned.includes(id)));
         if (pool.length === 0) break;
-      } else {
-        // Remaining pool has entries but they're all already in `assigned`
-        // (dailyTaskLimit exceeds pool size) — nothing more to add.
-        break;
+        continue;
       }
+      // The still-fresh (not-yet-completed-this-cycle) pool alone can't
+      // fill today's dailyTaskLimit — e.g. a package needing 8 tasks/day
+      // with only 3 left in the current cycle. Top up today's assignment
+      // from tasks already completed earlier this cycle instead of
+      // under-assigning: offering one again today is fine, since it's
+      // remainingPool/completedThisCycle (the multi-day no-repeat
+      // bookkeeping) that must stay untouched here, not today's list.
+      const topUp = shuffle(
+        [...completedThisCycle].filter((id) => eligibleSet.has(id) && !assigned.includes(id)),
+      );
+      if (topUp.length === 0) break; // nothing left anywhere to add
+      pool = topUp;
     }
     const next = pool.shift();
     if (next === undefined) break;

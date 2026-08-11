@@ -197,47 +197,49 @@ export function PackageForm({ initialPackage, onDone, onCancel }: PackageFormPro
 
       {pendingInput && (
         <Modal onClose={() => setPendingInput(null)} title="Confirm package changes">
-          <div className="flex flex-col gap-4">
-            <p className="text-sm text-white/70">
-              This updates the package template only. Existing holders keep the daily earning and
-              daily task limit they were already approved under — this change applies to future
-              purchases and, for existing holders, only the parts of the template that aren&apos;t
-              snapshotted per-user (name, price, referral commission, active status).
-            </p>
-            <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-surface-3 p-3 text-xs text-white/70">
-              <p className="text-white/40">Price</p>
-              <p className="text-right font-semibold text-white">{formatCurrency(pendingInput.price)}</p>
-              <p className="text-white/40">Daily earning</p>
-              <p className="text-right font-semibold text-white">
-                {formatCurrency(pendingInput.dailyEarning)}
+          {(requestClose) => (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-white/70">
+                This updates the package template only. Existing holders keep the daily earning and
+                daily task limit they were already approved under — this change applies to future
+                purchases and, for existing holders, only the parts of the template that aren&apos;t
+                snapshotted per-user (name, price, referral commission, active status).
               </p>
-              <p className="text-white/40">Referral commission</p>
-              <p className="text-right font-semibold text-white">
-                {formatCurrency(pendingInput.referralCommission)}
-              </p>
-              <p className="text-white/40">Daily task limit</p>
-              <p className="text-right font-semibold text-white">{pendingInput.dailyTaskLimit}</p>
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-surface-3 p-3 text-xs text-white/70">
+                <p className="text-white/40">Price</p>
+                <p className="text-right font-semibold text-white">{formatCurrency(pendingInput.price)}</p>
+                <p className="text-white/40">Daily earning</p>
+                <p className="text-right font-semibold text-white">
+                  {formatCurrency(pendingInput.dailyEarning)}
+                </p>
+                <p className="text-white/40">Referral commission</p>
+                <p className="text-right font-semibold text-white">
+                  {formatCurrency(pendingInput.referralCommission)}
+                </p>
+                <p className="text-white/40">Daily task limit</p>
+                <p className="text-right font-semibold text-white">{pendingInput.dailyTaskLimit}</p>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  size="md"
+                  disabled={submitting}
+                  onClick={() => void saveInput(pendingInput)}
+                >
+                  {submitting ? <Spinner /> : "Confirm and save"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  onClick={() => requestClose()}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
-            <div className="flex gap-3">
-              <Button
-                type="button"
-                size="md"
-                disabled={submitting}
-                onClick={() => void saveInput(pendingInput)}
-              >
-                {submitting ? <Spinner /> : "Confirm and save"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="md"
-                onClick={() => setPendingInput(null)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
+          )}
         </Modal>
       )}
     </form>

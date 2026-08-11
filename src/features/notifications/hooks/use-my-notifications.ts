@@ -5,6 +5,7 @@ import { onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { myNotificationsFeedQuery, type UserNotificationDoc } from "@/lib/firestore/user-notifications";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { toVisibleSanitizedNotifications } from "@/features/notifications/lib/withdrawal-notification-display";
 
 export type UserNotificationWithId = UserNotificationDoc & { id: string };
 
@@ -34,7 +35,13 @@ export function useMyNotifications(): UseMyNotificationsResult {
     const unsubscribe = onSnapshot(
       myNotificationsFeedQuery(db, uid),
       (snapshot) => {
-        setNotifications(snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+        const raw = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+        // Withdrawal-only, privacy-sanitized — see
+        // withdrawal-notification-display.ts. The most recent 20 documents
+        // are still fetched (unchanged query/index), so if many of them are
+        // non-withdrawal kinds, fewer than 20 may end up visible here; the
+        // full notifications page's "Load more" covers the rest.
+        setNotifications(toVisibleSanitizedNotifications(raw));
         setError(null);
         setLoading(false);
       },

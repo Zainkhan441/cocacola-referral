@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { siteConfig } from "@/config/site";
 import { AuthProvider } from "@/features/auth/context/auth-provider";
+import { UserProfileProvider } from "@/features/user/context/user-profile-provider";
 import { ConfirmProvider } from "@/components/ui/confirm-provider";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import "./globals.css";
@@ -33,29 +34,20 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
-      {/* Google AdSense site-verification script. Deliberately a plain HTML
-          <script> tag, not next/script: next/script (even with
-          strategy="beforeInteractive") only emits a <link rel="preload">
-          in the actual server-rendered HTML and inserts the real <script>
-          element via client-side JS immediately before hydration — so it
-          is never present in the raw HTML response a non-JS crawler like
-          Mediapartners-Google receives. Root layout is a Server Component,
-          so this literal <script> tag IS part of the static SSR output;
-          React 19 (which this project uses) automatically hoists <script>
-          elements into the document <head> wherever they're rendered in
-          the tree, so this ends up in <head> exactly as Google's
-          verification crawler requires. It's declared exactly once, here,
-          in the root layout that wraps every route — no other file may
-          add it. */}
-      <script
-        async
-        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3568802588793043"
-        crossOrigin="anonymous"
-      />
+      {/* Every signed-in page opens a Firestore listener and (for the
+          signed-out flows) an Auth request within moments of first paint —
+          these two origins are used on essentially every route, so the
+          browser can start the TCP+TLS handshake in parallel with parsing
+          the rest of the document instead of paying that setup cost only
+          once the SDK actually issues its first request. */}
+      <link rel="preconnect" href="https://firestore.googleapis.com" />
+      <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
       <body className="min-h-full flex flex-col">
         <ToastProvider>
           <ConfirmProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <AuthProvider>
+              <UserProfileProvider>{children}</UserProfileProvider>
+            </AuthProvider>
           </ConfirmProvider>
         </ToastProvider>
       </body>

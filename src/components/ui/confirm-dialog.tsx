@@ -81,28 +81,30 @@ export function ConfirmDialog({
 
   return (
     <Modal onClose={onCancel} title={title} closeOnBackdropClick={closeOnBackdropClick}>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-start gap-3">
-          <span
-            className={cn(
-              "flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border",
-              config.iconClassName,
-            )}
-          >
-            <Icon className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <p className="pt-2 text-sm text-white/70">{message}</p>
-        </div>
+      {(requestClose) => (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <span
+              className={cn(
+                "flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border",
+                config.iconClassName,
+              )}
+            >
+              <Icon className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <p className="pt-2 text-sm text-white/70">{message}</p>
+          </div>
 
-        <div className="flex gap-3">
-          <Button variant={config.confirmVariant} size="md" onClick={onConfirm} autoFocus>
-            {confirmLabel ?? config.defaultConfirmLabel}
-          </Button>
-          <Button variant="outline" size="md" onClick={onCancel}>
-            {cancelLabel}
-          </Button>
+          <div className="flex gap-3">
+            <Button variant={config.confirmVariant} size="md" onClick={() => requestClose(onConfirm)} autoFocus>
+              {confirmLabel ?? config.defaultConfirmLabel}
+            </Button>
+            <Button variant="outline" size="md" onClick={() => requestClose(onCancel)}>
+              {cancelLabel}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </Modal>
   );
 }

@@ -33,13 +33,13 @@ export function UserStatusActions({ uid, userName, accountStatus, reviewer, onCh
   const [error, setError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<"suspended" | "archived" | null>(null);
 
-  async function applyStatus(status: AccountStatus) {
+  async function applyStatus(status: AccountStatus, onSuccess: () => void) {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
       await setAccountStatusAction(uid, userName, status, reviewer());
-      setConfirmTarget(null);
+      onSuccess();
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn’t update this account's status.");
@@ -64,7 +64,7 @@ export function UserStatusActions({ uid, userName, accountStatus, reviewer, onCh
         )}
         {accountStatus === "suspended" && (
           <>
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => void applyStatus("active")}>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => void applyStatus("active", () => {})}>
               {busy ? <Spinner /> : "Unsuspend account"}
             </Button>
             <Button variant="warning" size="sm" disabled={busy} onClick={() => setConfirmTarget("archived")}>
@@ -73,7 +73,7 @@ export function UserStatusActions({ uid, userName, accountStatus, reviewer, onCh
           </>
         )}
         {accountStatus === "archived" && (
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => void applyStatus("active")}>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void applyStatus("active", () => {})}>
             {busy ? <Spinner /> : "Restore account"}
           </Button>
         )}
@@ -89,34 +89,36 @@ export function UserStatusActions({ uid, userName, accountStatus, reviewer, onCh
           onClose={() => setConfirmTarget(null)}
           title={confirmTarget === "suspended" ? `Suspend ${userName}?` : `Archive ${userName}?`}
         >
-          <div className="flex flex-col gap-4">
-            <ul className="flex flex-col gap-2 text-sm text-white/70">
-              <li>
-                • {userName} will be immediately signed out of every page and blocked from depositing,
-                withdrawing, submitting tasks, or claiming daily earnings.
-              </li>
-              {confirmTarget === "archived" && (
-                <li>• This account will be hidden from the default Users list until restored.</li>
-              )}
-              <li>
-                • This is fully reversible — you can {confirmTarget === "suspended" ? "Unsuspend" : "Restore"} this
-                account at any time. No data is changed or removed.
-              </li>
-            </ul>
-            <div className="flex gap-3">
-              <Button
-                variant="warning"
-                size="md"
-                disabled={busy}
-                onClick={() => void applyStatus(confirmTarget)}
-              >
-                {busy ? <Spinner /> : confirmTarget === "suspended" ? "Suspend account" : "Archive account"}
-              </Button>
-              <Button variant="outline" size="md" onClick={() => setConfirmTarget(null)} disabled={busy}>
-                Cancel
-              </Button>
+          {(requestClose) => (
+            <div className="flex flex-col gap-4">
+              <ul className="flex flex-col gap-2 text-sm text-white/70">
+                <li>
+                  • {userName} will be immediately signed out of every page and blocked from depositing,
+                  withdrawing, submitting tasks, or claiming daily earnings.
+                </li>
+                {confirmTarget === "archived" && (
+                  <li>• This account will be hidden from the default Users list until restored.</li>
+                )}
+                <li>
+                  • This is fully reversible — you can {confirmTarget === "suspended" ? "Unsuspend" : "Restore"} this
+                  account at any time. No data is changed or removed.
+                </li>
+              </ul>
+              <div className="flex gap-3">
+                <Button
+                  variant="warning"
+                  size="md"
+                  disabled={busy}
+                  onClick={() => void applyStatus(confirmTarget, () => requestClose())}
+                >
+                  {busy ? <Spinner /> : confirmTarget === "suspended" ? "Suspend account" : "Archive account"}
+                </Button>
+                <Button variant="outline" size="md" onClick={() => requestClose()} disabled={busy}>
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </Modal>
       )}
     </div>

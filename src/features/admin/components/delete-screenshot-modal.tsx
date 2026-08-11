@@ -33,7 +33,7 @@ export function DeleteScreenshotModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleConfirm() {
+  async function handleConfirm(onSuccess: () => void) {
     if (!user || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -42,7 +42,7 @@ export function DeleteScreenshotModal({
         adminUid: user.uid,
         adminName: user.displayName ?? user.email ?? "Admin",
       });
-      onDeleted();
+      onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn’t delete this screenshot.");
     } finally {
@@ -52,42 +52,44 @@ export function DeleteScreenshotModal({
 
   return (
     <Modal onClose={onClose} title="Delete payment screenshot?">
-      <div className="flex flex-col gap-4">
-        {depositStatus === "pending" && (
+      {(requestClose) => (
+        <div className="flex flex-col gap-4">
+          {depositStatus === "pending" && (
+            <Alert variant="error">
+              This payment has not been fully processed yet. Are you sure you want to permanently
+              remove its proof?
+            </Alert>
+          )}
+
           <Alert variant="error">
-            This payment has not been fully processed yet. Are you sure you want to permanently
-            remove its proof?
+            Have you downloaded and securely saved this payment proof? This action will permanently
+            delete the screenshot from the website and cannot be undone. The deposit record will
+            remain.
           </Alert>
-        )}
 
-        <Alert variant="error">
-          Have you downloaded and securely saved this payment proof? This action will permanently
-          delete the screenshot from the website and cannot be undone. The deposit record will
-          remain.
-        </Alert>
+          {screenshotSizeBytes != null && (
+            <p className="text-xs text-white/50">
+              Screenshot size: <span className="text-white/70">{formatBytes(screenshotSizeBytes)}</span>
+            </p>
+          )}
 
-        {screenshotSizeBytes != null && (
-          <p className="text-xs text-white/50">
-            Screenshot size: <span className="text-white/70">{formatBytes(screenshotSizeBytes)}</span>
-          </p>
-        )}
+          {error && <Alert variant="error">{error}</Alert>}
 
-        {error && <Alert variant="error">{error}</Alert>}
-
-        <div className="flex gap-3">
-          <Button
-            variant="destructive"
-            size="md"
-            disabled={submitting}
-            onClick={() => void handleConfirm()}
-          >
-            {submitting ? <Spinner /> : "Yes, Permanently Delete Screenshot"}
-          </Button>
-          <Button variant="outline" size="md" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              variant="destructive"
+              size="md"
+              disabled={submitting}
+              onClick={() => void handleConfirm(() => requestClose(onDeleted))}
+            >
+              {submitting ? <Spinner /> : "Yes, Permanently Delete Screenshot"}
+            </Button>
+            <Button variant="outline" size="md" onClick={() => requestClose()} disabled={submitting}>
+              Cancel
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </Modal>
   );
 }

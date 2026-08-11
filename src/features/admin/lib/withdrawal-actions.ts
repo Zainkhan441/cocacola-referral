@@ -8,7 +8,7 @@ import { getWithdrawalRules } from "@/lib/firestore/settings";
 import { newSystemNotificationRef, buildSystemNotificationData } from "@/lib/firestore/user-notifications";
 import { logActivity } from "@/lib/firestore/activity-logs";
 import { formatCurrency } from "@/lib/format";
-import { WITHDRAWAL_SOURCE_WALLET_LABELS as SOURCE_WALLET_LABELS } from "@/lib/wallet-labels";
+import { WITHDRAWAL_NOTIFICATION_TEXT } from "@/lib/withdrawal-notification-text";
 import { requireDb, type Reviewer } from "@/features/admin/lib/require-db";
 import { levelLabel, thresholdForLevel } from "@/lib/level";
 
@@ -134,8 +134,12 @@ export async function approveWithdrawal(
       buildSystemNotificationData({
         uid: withdrawal.uid,
         kind: "withdrawal",
-        title: "Withdrawal approved",
-        body: `Your ${formatCurrency(withdrawal.amount)} ${SOURCE_WALLET_LABELS[withdrawal.sourceWallet]} withdrawal was approved and sent to ${withdrawal.accountNumber}.`,
+        // No amount, source wallet, or account number here — user
+        // notifications must never reveal financial details (see
+        // withdrawal-notification-text.ts); the full detail remains
+        // visible to the user only in Withdrawal History.
+        title: WITHDRAWAL_NOTIFICATION_TEXT.approved.title,
+        body: WITHDRAWAL_NOTIFICATION_TEXT.approved.body,
       }),
     );
 
@@ -189,10 +193,12 @@ export async function rejectWithdrawal(
       buildSystemNotificationData({
         uid: withdrawal.uid,
         kind: "withdrawal",
-        title: "Withdrawal rejected",
-        body: note?.trim()
-          ? `Your ${formatCurrency(withdrawal.amount)} ${SOURCE_WALLET_LABELS[withdrawal.sourceWallet]} withdrawal was rejected: ${note.trim()}`
-          : `Your ${formatCurrency(withdrawal.amount)} ${SOURCE_WALLET_LABELS[withdrawal.sourceWallet]} withdrawal was rejected. Please contact support for details.`,
+        // No amount, source wallet, account number, or the admin's own
+        // rejection note here — same privacy rule as the approved case
+        // above. The note remains visible to the user only in Withdrawal
+        // History (via the withdrawal doc's own reviewNote field).
+        title: WITHDRAWAL_NOTIFICATION_TEXT.rejected.title,
+        body: WITHDRAWAL_NOTIFICATION_TEXT.rejected.body,
       }),
     );
   });

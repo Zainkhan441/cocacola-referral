@@ -12,10 +12,20 @@ const EXIT_DURATION_MS = 180;
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// A caller's own in-dialog buttons (Confirm/Cancel/Done/etc.) need to play
+// the exact same exit animation as ESC/backdrop/the X button before
+// whatever they do next (resolve a promise, flip parent state, unmount)
+// actually happens — otherwise the dialog snaps away instantly for the
+// most common interaction while every other dismissal path fades out.
+// `after` defaults to the modal's own `onClose` (a plain Cancel button can
+// just call `requestClose()`); pass a different callback (e.g. the
+// Confirm action) to animate out before running that instead.
+type RequestClose = (after?: () => void) => void;
+
 type ModalProps = {
   onClose: () => void;
   title: string;
-  children: ReactNode;
+  children: ReactNode | ((requestClose: RequestClose) => ReactNode);
   // Some flows (e.g. a destructive confirmation) want an accidental click
   // outside the dialog to NOT dismiss it — defaults to true, matching every
   // existing caller's prior behavior.
@@ -46,14 +56,15 @@ export function Modal({ onClose, title, children, closeOnBackdropClick = true }:
     };
   }, []);
 
-  // Exit animation: play the reverse transition, then call the real
-  // onClose (which is what actually unmounts this component) once it's
-  // finished — every internal dismissal path (ESC, backdrop, the X button)
-  // routes through this so none of them just vanish instantly.
-  function requestClose() {
+  // Exit animation: play the reverse transition, then call `after` (default
+  // `onClose`) once it's finished — every dismissal path (ESC, backdrop, the
+  // X button, and any caller-supplied action button that opts in via the
+  // children render-prop) routes through this so none of them just vanish
+  // instantly.
+  const requestClose: RequestClose = (after = onClose) => {
     setEntered(false);
-    window.setTimeout(onClose, EXIT_DURATION_MS);
-  }
+    window.setTimeout(after, EXIT_DURATION_MS);
+  };
 
   useEffect(() => {
     // Only steal focus to the panel container if a child hasn't already
@@ -98,7 +109,7 @@ export function Modal({ onClose, title, children, closeOnBackdropClick = true }:
           "absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity duration-200 ease-out",
           entered ? "opacity-100" : "opacity-0",
         )}
-        onClick={closeOnBackdropClick ? requestClose : undefined}
+        onClick={closeOnBackdropClick ? () => requestClose() : undefined}
         aria-hidden="true"
       />
       <div
@@ -118,14 +129,16 @@ export function Modal({ onClose, title, children, closeOnBackdropClick = true }:
           </h2>
           <button
             type="button"
-            onClick={requestClose}
+            onClick={() => requestClose()}
             className="rounded-full p-1.5 text-white/50 transition-colors hover:bg-white/5 hover:text-white"
             aria-label="Close"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
-        <div className="overflow-y-auto p-6">{children}</div>
+        <div className="overflow-y-auto p-6">
+          {typeof children === "function" ? children(requestClose) : children}
+        </div>
       </div>
     </div>
   );

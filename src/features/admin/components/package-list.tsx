@@ -55,7 +55,7 @@ export function PackageList({
     }
   }
 
-  async function confirmDisable() {
+  async function confirmDisable(onSuccess: () => void) {
     const reviewer = reviewerFor();
     if (!reviewer || !disableTarget || togglingId) return;
     setListError(null);
@@ -63,7 +63,7 @@ export function PackageList({
     try {
       await setPackageActiveAction(disableTarget.id, disableTarget.name, false, reviewer);
       onActionSuccess(`"${disableTarget.name}" disabled.`);
-      setDisableTarget(null);
+      onSuccess();
     } catch {
       setListError("Couldn’t update that package. Please try again.");
     } finally {
@@ -188,30 +188,37 @@ export function PackageList({
 type DisableConfirmModalProps = {
   pkg: PackageDoc;
   submitting: boolean;
-  onConfirm: () => void;
+  onConfirm: (onSuccess: () => void) => void;
   onClose: () => void;
 };
 
 function DisableConfirmModal({ pkg, submitting, onConfirm, onClose }: DisableConfirmModalProps) {
   return (
     <Modal onClose={onClose} title={`Disable "${pkg.name}"?`}>
-      <div className="flex flex-col gap-4">
-        <ul className="flex flex-col gap-2 text-sm text-white/70">
-          <li>• New users will no longer be able to purchase it.</li>
-          <li>• Existing package holders will remain unaffected.</li>
-        </ul>
-        <p className="text-xs text-white/40">
-          This is temporary — you can re-enable this package at any time from this same list.
-        </p>
-        <div className="flex gap-3">
-          <Button variant="warning" size="md" disabled={submitting} onClick={onConfirm}>
-            {submitting ? <Spinner /> : "Disable package"}
-          </Button>
-          <Button variant="outline" size="md" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
+      {(requestClose) => (
+        <div className="flex flex-col gap-4">
+          <ul className="flex flex-col gap-2 text-sm text-white/70">
+            <li>• New users will no longer be able to purchase it.</li>
+            <li>• Existing package holders will remain unaffected.</li>
+          </ul>
+          <p className="text-xs text-white/40">
+            This is temporary — you can re-enable this package at any time from this same list.
+          </p>
+          <div className="flex gap-3">
+            <Button
+              variant="warning"
+              size="md"
+              disabled={submitting}
+              onClick={() => onConfirm(() => requestClose())}
+            >
+              {submitting ? <Spinner /> : "Disable package"}
+            </Button>
+            <Button variant="outline" size="md" onClick={() => requestClose()} disabled={submitting}>
+              Cancel
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </Modal>
   );
 }
@@ -230,7 +237,7 @@ function DeleteConfirmModal({ pkg, onDeleted, onClose }: DeleteConfirmModalProps
 
   const canDelete = confirmText.trim().toUpperCase() === "DELETE";
 
-  async function handleDelete() {
+  async function handleDelete(onSuccess: () => void) {
     if (!user || !canDelete || submitting) return;
     setSubmitting(true);
     setError(null);
@@ -239,7 +246,7 @@ function DeleteConfirmModal({ pkg, onDeleted, onClose }: DeleteConfirmModalProps
         adminUid: user.uid,
         adminName: user.displayName ?? user.email ?? "Admin",
       });
-      onDeleted();
+      onSuccess();
     } catch (deleteError) {
       setError(
         deleteError instanceof Error
@@ -253,44 +260,46 @@ function DeleteConfirmModal({ pkg, onDeleted, onClose }: DeleteConfirmModalProps
 
   return (
     <Modal onClose={onClose} title={`Permanently delete "${pkg.name}"?`}>
-      <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-surface-3 p-3 text-xs text-white/70">
-          <p className="text-white/40">Package</p>
-          <p className="text-right font-semibold text-white">{pkg.name}</p>
-          <p className="text-white/40">Price</p>
-          <p className="text-right font-semibold text-white">{formatCurrency(pkg.price)}</p>
+      {(requestClose) => (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-surface-3 p-3 text-xs text-white/70">
+            <p className="text-white/40">Package</p>
+            <p className="text-right font-semibold text-white">{pkg.name}</p>
+            <p className="text-white/40">Price</p>
+            <p className="text-right font-semibold text-white">{formatCurrency(pkg.price)}</p>
+          </div>
+          <Alert variant="error">
+            This permanently removes the package. This cannot be undone. If any user is still
+            assigned this package, or a deposit for it is still pending review, deletion will be
+            blocked — disable it instead.
+          </Alert>
+          {error && <Alert variant="error">{error}</Alert>}
+          <label className="flex flex-col gap-1.5 text-sm text-white/80">
+            Type DELETE to confirm
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              autoComplete="off"
+              className="h-11 w-full rounded-xl border border-white/15 bg-surface-3 px-4 text-sm text-white placeholder:text-white/30 transition-colors focus:border-red-500 focus:outline-none"
+              placeholder="DELETE"
+            />
+          </label>
+          <div className="flex gap-3">
+            <Button
+              variant="destructive"
+              size="md"
+              disabled={!canDelete || submitting}
+              onClick={() => void handleDelete(() => requestClose(onDeleted))}
+            >
+              {submitting ? <Spinner /> : "Permanently delete"}
+            </Button>
+            <Button variant="outline" size="md" onClick={() => requestClose()} disabled={submitting}>
+              Cancel
+            </Button>
+          </div>
         </div>
-        <Alert variant="error">
-          This permanently removes the package. This cannot be undone. If any user is still
-          assigned this package, or a deposit for it is still pending review, deletion will be
-          blocked — disable it instead.
-        </Alert>
-        {error && <Alert variant="error">{error}</Alert>}
-        <label className="flex flex-col gap-1.5 text-sm text-white/80">
-          Type DELETE to confirm
-          <input
-            type="text"
-            value={confirmText}
-            onChange={(event) => setConfirmText(event.target.value)}
-            autoComplete="off"
-            className="h-11 w-full rounded-xl border border-white/15 bg-surface-3 px-4 text-sm text-white placeholder:text-white/30 transition-colors focus:border-red-500 focus:outline-none"
-            placeholder="DELETE"
-          />
-        </label>
-        <div className="flex gap-3">
-          <Button
-            variant="destructive"
-            size="md"
-            disabled={!canDelete || submitting}
-            onClick={() => void handleDelete()}
-          >
-            {submitting ? <Spinner /> : "Permanently delete"}
-          </Button>
-          <Button variant="outline" size="md" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-        </div>
-      </div>
+      )}
     </Modal>
   );
 }

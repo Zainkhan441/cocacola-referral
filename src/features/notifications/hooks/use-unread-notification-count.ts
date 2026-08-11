@@ -5,11 +5,15 @@ import { onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 import { userNotificationsCollection } from "@/lib/firestore/user-notifications";
 import { useAuth } from "@/features/auth/context/auth-provider";
+import { isVisibleUserNotification } from "@/features/notifications/lib/withdrawal-notification-display";
 
 // A live count (not a one-shot aggregate) so the bell badge updates the
 // instant a notification is sent or marked read, on any currently-open tab —
 // consistent with the real-time requirement for this feature. Requires the
-// (uid asc, read asc) composite index.
+// (uid asc, read asc) composite index — unchanged from before; the
+// withdrawal-only filter is applied client-side to the already-fetched
+// docs (not a `where("kind", ...)` query clause), so this counts only
+// VISIBLE unread notifications without requiring a new composite index.
 export function useUnreadNotificationCount(): number {
   const { user, configured } = useAuth();
   const uid = user?.uid;
@@ -22,7 +26,7 @@ export function useUnreadNotificationCount(): number {
 
     const unsubscribe = onSnapshot(
       query(userNotificationsCollection(db), where("uid", "==", uid), where("read", "==", false)),
-      (snapshot) => setCount(snapshot.size),
+      (snapshot) => setCount(snapshot.docs.filter((doc) => isVisibleUserNotification(doc.data())).length),
       () => setCount(0),
     );
 

@@ -80,13 +80,13 @@ export function PackagePurchaseForm({ pkg, onDone, onCancel }: PackagePurchaseFo
 
   return (
     <Modal onClose={onCancel} title={`Purchase "${pkg.name}"`}>
-      {success ? (
+      {(requestClose) => (success ? (
         <div className="flex flex-col gap-4">
           <Alert variant="success">
             Purchase request for &quot;{pkg.name}&quot; submitted. We’ll review it shortly and
             activate your package once approved.
           </Alert>
-          <Button variant="outline" size="md" onClick={onDone} className="self-start">
+          <Button variant="outline" size="md" onClick={() => requestClose(onDone)} className="self-start">
             Done
           </Button>
         </div>
@@ -142,12 +142,12 @@ export function PackagePurchaseForm({ pkg, onDone, onCancel }: PackagePurchaseFo
             <Button type="submit" size="md" disabled={submitting}>
               {submitting ? <Spinner /> : `Submit Payment · ${formatCurrency(pkg.price)}`}
             </Button>
-            <Button type="button" variant="outline" size="md" onClick={onCancel} disabled={submitting}>
+            <Button type="button" variant="outline" size="md" onClick={() => requestClose()} disabled={submitting}>
               Cancel
             </Button>
           </div>
         </form>
-      )}
+      ))}
     </Modal>
   );
 }

@@ -10,6 +10,7 @@ import {
 } from "@/lib/firestore/user-notifications";
 import { useAuth } from "@/features/auth/context/auth-provider";
 import { useResetOnKeyChange } from "@/features/user/hooks/use-reset-on-key-change";
+import { toVisibleSanitizedNotifications } from "@/features/notifications/lib/withdrawal-notification-display";
 
 export type UserNotificationWithId = UserNotificationDoc & { id: string };
 
@@ -55,7 +56,14 @@ export function useMyNotificationHistory(): UseMyNotificationHistoryResult {
     getDocs(myNotificationsPageQuery(firestore, uid, null))
       .then((snapshot) => {
         if (cancelled) return;
-        setNotifications(snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+        const raw = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+        // Withdrawal-only, privacy-sanitized — see
+        // withdrawal-notification-display.ts. Pagination (cursor/hasMore)
+        // is still driven by the RAW page (whether Firestore actually
+        // returned a full page), not the filtered count — otherwise a page
+        // full of non-withdrawal notifications would look like "no more
+        // history" even though more genuinely exists beyond the cursor.
+        setNotifications(toVisibleSanitizedNotifications(raw));
         setCursor(snapshot.docs.at(-1) ?? null);
         setHasMore(snapshot.docs.length === USER_NOTIFICATIONS_PAGE_SIZE);
         setLoading(false);
@@ -76,7 +84,8 @@ export function useMyNotificationHistory(): UseMyNotificationHistoryResult {
     setLoadingMore(true);
     try {
       const snapshot = await getDocs(myNotificationsPageQuery(db, uid, cursor));
-      setNotifications((prev) => [...prev, ...snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }))]);
+      const raw = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+      setNotifications((prev) => [...prev, ...toVisibleSanitizedNotifications(raw)]);
       setCursor(snapshot.docs.at(-1) ?? cursor);
       setHasMore(snapshot.docs.length === USER_NOTIFICATIONS_PAGE_SIZE);
     } catch {

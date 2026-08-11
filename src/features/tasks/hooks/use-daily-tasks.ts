@@ -98,6 +98,14 @@ export function useDailyTasks(
   const todayKey = pakistanDateKey(now);
   const dailyTaskLimit = profile?.packageDailyTaskLimit ?? packageInfo?.dailyTaskLimit ?? 0;
 
+  // `now` is a real dependency here, not an oversight — it's what notices a
+  // task's startDate arriving or endDate passing while this tab stays open
+  // (same live-clock convention as the rest of this hook), on the same 60s
+  // tick / visibility-regain cadence as everything else driven by `now`.
+  // Cheap to recompute on every tick (a filter over a small array); the
+  // "ensure today's assignment" effect below only re-fires when the actual
+  // set of ids changes (it depends on the joined string, not this array's
+  // identity), so this never causes spurious extra writes.
   const eligibleActiveTaskIds = useMemo(() => {
     if (!profile) return [];
     return allTasks
@@ -105,8 +113,7 @@ export function useDailyTasks(
       .filter((task) => now >= task.startDate.toMillis() && (!task.endDate || now <= task.endDate.toMillis()))
       .filter((task) => isEligible(task, profile, packageInfo))
       .map((task) => task.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allTasks, profile, packageInfo]);
+  }, [allTasks, profile, packageInfo, now]);
 
   // Ensure today's assignment exists (or newly-eligible tasks are merged
   // in), then subscribe to the rotation doc for live updates.
