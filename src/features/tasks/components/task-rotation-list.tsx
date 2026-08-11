@@ -265,12 +265,20 @@ export function TaskRotationList({
             Today’s reward has already been credited. Come back tomorrow for a new assignment.
           </Alert>
         ) : autoBalance ? (
-          daily.allDoneToday && (
+          daily.allDoneToday &&
+          (daily.claimError ? (
+            <>
+              <Alert variant="error">{daily.claimError}</Alert>
+              <Button variant="outline" size="sm" className="self-start" onClick={() => daily.claim()}>
+                Retry
+              </Button>
+            </>
+          ) : (
             <p className="flex items-center gap-2 text-xs text-white/50">
               <Spinner className="h-3.5 w-3.5" />
               Crediting your reward…
             </p>
-          )
+          ))
         ) : (
           <>
             {daily.claimError && <Alert variant="error">{daily.claimError}</Alert>}

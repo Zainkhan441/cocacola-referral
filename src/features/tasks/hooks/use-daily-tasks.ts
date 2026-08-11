@@ -239,16 +239,28 @@ export function useDailyTasks(
   // is idempotent (guarded by `claiming`/`alreadyClaimedToday`, and the
   // underlying transaction independently re-checks lastDailyClaimAt
   // server-side), so re-running this effect can never double-credit.
+  //
+  // `!claimError` is a real guard, not defensive padding: `claiming` is
+  // also a dependency (so this effect notices the moment an in-flight
+  // claim settles), and `claiming` flips back to false on FAILURE too —
+  // without excluding a failed attempt, that same false->true->false cycle
+  // would immediately re-trigger this effect and retry forever in a tight
+  // loop (e.g. while the platform-wide daily-claims kill switch in
+  // Settings > Earnings is off, every single retry is rejected instantly),
+  // hammering Firestore with failed writes and never surfacing the error.
+  // `claim()` clears claimError at its own start, so toggling Auto off and
+  // back on (or a real state change that flips allDoneToday) naturally
+  // allows exactly one fresh attempt again.
   const autoBalanceEnabled = profile?.autoBalanceAfterAds ?? false;
   useEffect(() => {
-    if (!(autoBalanceEnabled && allDoneToday && !alreadyClaimedToday && !claiming)) return;
+    if (!(autoBalanceEnabled && allDoneToday && !alreadyClaimedToday && !claiming && !claimError)) return;
     // claim() sets state synchronously at its very start (setClaiming(true),
     // etc.) — deferred to a microtask so that state update happens outside
     // this effect's own synchronous execution, not directly within it.
     const microtask = Promise.resolve().then(() => claim());
     void microtask;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoBalanceEnabled, allDoneToday, alreadyClaimedToday, claiming]);
+  }, [autoBalanceEnabled, allDoneToday, alreadyClaimedToday, claiming, claimError]);
 
   return {
     loading: tasksLoading || rotationLoading,
