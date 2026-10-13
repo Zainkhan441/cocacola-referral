@@ -1,5 +1,7 @@
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import { siteConfig } from "@/config/site";
 import { AuthProvider } from "@/features/auth/context/auth-provider";
 import { UserProfileProvider } from "@/features/user/context/user-profile-provider";
@@ -34,14 +36,9 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
-      {/* Every signed-in page opens a Firestore listener and (for the
-          signed-out flows) an Auth request within moments of first paint —
-          these two origins are used on essentially every route, so the
-          browser can start the TCP+TLS handshake in parallel with parsing
-          the rest of the document instead of paying that setup cost only
-          once the SDK actually issues its first request. */}
       <link rel="preconnect" href="https://firestore.googleapis.com" />
       <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
+
       <body className="min-h-full flex flex-col">
         <ToastProvider>
           <ConfirmProvider>
@@ -50,6 +47,36 @@ export default function RootLayout({
             </AuthProvider>
           </ConfirmProvider>
         </ToastProvider>
+
+        <div
+          id="adsterra-container"
+          style={{
+            width: "160px",
+            minHeight: "300px",
+            maxWidth: "100%",
+            margin: "16px auto",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        />
+
+        <Script id="adsterra-config" strategy="afterInteractive">
+          {`
+            window.atOptions = {
+              key: "5ca1ab0ccd0f92be496d65b701aaeb05",
+              format: "iframe",
+              height: 300,
+              width: 160,
+              params: {}
+            };
+          `}
+        </Script>
+
+        <Script
+          id="adsterra-ad"
+          src="https://bauval.org/22/5ca1ab0ccd0f92be496d65b701aaeb05"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
