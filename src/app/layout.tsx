@@ -40,27 +40,7 @@ export default function RootLayout({
       <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
 
       <body className="min-h-full flex flex-col">
-        <ToastProvider>
-          <ConfirmProvider>
-            <AuthProvider>
-              <UserProfileProvider>{children}</UserProfileProvider>
-            </AuthProvider>
-          </ConfirmProvider>
-        </ToastProvider>
-
-        <div
-          id="adsterra-container"
-          style={{
-            width: "160px",
-            minHeight: "300px",
-            maxWidth: "100%",
-            margin: "16px auto",
-            display: "flex",
-            justifyContent: "center",
-          }}
-        />
-
-        <Script id="adsterra-config" strategy="afterInteractive">
+        <Script id="adsterra-config" strategy="beforeInteractive">
           {`
             window.atOptions = {
               key: "5ca1ab0ccd0f92be496d65b701aaeb05",
@@ -72,11 +52,31 @@ export default function RootLayout({
           `}
         </Script>
 
-        <Script
-          id="adsterra-ad"
-          src="https://bauval.org/22/5ca1ab0ccd0f92be496d65b701aaeb05"
-          strategy="afterInteractive"
-        />
+        <div
+          id="adsterra-container"
+          style={{
+            width: "160px",
+            minHeight: "300px",
+            maxWidth: "100%",
+            margin: "0 auto 16px",
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
+          <Script
+            id="adsterra-ad"
+            src="https://bauval.org/22/5ca1ab0ccd0f92be496d65b701aaeb05"
+            strategy="afterInteractive"
+          />
+        </div>
+
+        <ToastProvider>
+          <ConfirmProvider>
+            <AuthProvider>
+              <UserProfileProvider>{children}</UserProfileProvider>
+            </AuthProvider>
+          </ConfirmProvider>
+        </ToastProvider>
       </body>
     </html>
   );
