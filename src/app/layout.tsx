@@ -51,7 +51,27 @@ export default function RootLayout({
             };
           `}
         </Script>
-
+        <script>
+  atOptions = {
+    'key' : '5ca1ab0ccd0f92be496d65b701aaeb05',
+    'format' : 'iframe',
+    'height' : 300,
+    'width' : 160,
+    'params' : {}
+  };
+</script>
+<script src="https://bauval.org/22/5ca1ab0ccd0f92be496d65b701aaeb05"></script>
+        
+<script>
+  atOptions = {
+    'key' : '27bcf43eb79f8c4d2d2a40f41ff7dbb0',
+    'format' : 'iframe',
+    'height' : 60,
+    'width' : 468,
+    'params' : {}
+  };
+</script>
+<script src="https://bauval.org/22/27bcf43eb79f8c4d2d2a40f41ff7dbb0"></script>
         <div
           id="adsterra-container"
           style={{
