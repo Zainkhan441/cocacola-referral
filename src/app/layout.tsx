@@ -54,5 +54,3 @@ once the SDK actually issues its first request. */}
 </html>
 );
 }
-
-Tum lga Kar do may paste Kar dunga
